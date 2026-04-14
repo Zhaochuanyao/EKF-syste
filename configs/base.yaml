@@ -1,0 +1,141 @@
+# 基础配置文件 - 所有实验配置的默认值
+# 实验配置文件可以覆盖这里的任何值
+
+# 运行时配置
+runtime:
+  frame_skip: 1          # 每隔N帧处理一次（1=不跳帧，2=每2帧处理1帧）
+  max_frames: null        # 最大处理帧数（null=不限制）
+  seed: 42               # 随机种子
+  device: cpu            # 运行设备：cpu / cuda（本项目默认CPU）
+  num_workers: 0         # 数据加载线程数
+
+# 检测器配置
+detector:
+  backend: ultralytics   # 推理后端：ultralytics / onnx
+  model: yolov8n         # 模型名称
+  weights: weights/yolov8n.pt  # 权重路径
+  onnx_path: weights/yolov8n.onnx  # ONNX权重路径
+  imgsz: 640             # 输入图像尺寸
+  conf: 0.35             # 置信度阈值（检测器输出的最低分）
+  iou: 0.5               # NMS IoU阈值
+  max_det: 100           # 最大检测数量
+  classes: null          # 检测类别（null=所有类别，[0,2]=person+car）
+  half: false            # 是否使用FP16（CPU不支持）
+  warmup_iters: 2        # 预热迭代次数
+  # 后处理过滤参数
+  min_area: 100.0           # 最小面积（像素²）
+  min_short_side: 10.0      # 最小短边（像素，0=不过滤）
+  min_aspect: 0.0           # 最小宽高比（0=不过滤）
+  max_aspect: 0.0           # 最大宽高比（0=不过滤）
+  border_margin: 0.0        # 边界过滤距离（0=不过滤）
+
+# 跟踪器配置
+tracker:
+  # EKF参数
+  dt: 0.04               # 时间步长（秒），默认1/25s
+  auto_dt: true          # 是否从视频FPS自动估算dt
+
+  # 轨迹生命周期
+  n_init: 3              # 轨迹确认所需连续命中帧数
+  max_age: 20            # 轨迹最大丢失帧数
+  min_hits: 1            # 最小命中次数（保留兼容）
+
+  # ── 三阶段关联参数 ───────────────────────────────────────────
+  # Stage A: (Confirmed+Lost) vs 高置信度检测框
+  high_conf_threshold: 0.5     # 高置信度分界（score >= 此值进 Stage A）
+  low_conf_threshold: 0.1      # 低置信度分界（low_conf_threshold <= score < high_conf_threshold 进 Stage B）
+  gating_threshold_confirmed: 9.4877   # Stage A Mahalanobis 门控阈值（chi2, df=4, 95%）
+  cost_iou_weight: 0.4         # Stage A IoU 代价权重
+  cost_mahal_weight: 0.4       # Stage A Mahalanobis 代价权重
+  cost_center_weight_confirmed: 0.2    # Stage A 中心距离代价权重
+  center_norm: 200.0           # 中心距离归一化因子（像素）
+  cost_threshold_a: 0.8        # Stage A 匹配代价上限
+  # Stage B: 未匹配轨迹 vs 低置信度检测框（仅 IoU）
+  iou_threshold_b: 0.4         # Stage B IoU 关联阈值（cost < 1 - iou_threshold_b）
+  # Stage C: Tentative vs 未匹配高置信度检测框
+  iou_threshold_c: 0.3         # Stage C IoU 关联阈值
+  second_stage_match: true     # 是否启用 Stage B（低置信度补匹配）
+
+  # 新轨迹创建门限
+  min_create_score: 0.3        # 创建新轨迹所需的最低置信度（避免噪声轨迹）
+
+  # 观测锚点模式
+  anchor_mode: center          # "center" 或 "bottom_center"（行人场景建议 bottom_center）
+
+  # ── 向后兼容参数（保留，映射到新参数）──────────────────────
+  iou_threshold: 0.3           # 旧参数，映射到 iou_threshold_c
+  gating_threshold: 9.4877     # 旧参数，映射到 gating_threshold_confirmed
+  second_stage_conf: 0.1       # 旧参数，映射到 low_conf_threshold
+
+# EKF噪声参数
+ekf:
+  # 过程噪声（状态转移不确定性）
+  process_noise:
+    std_acc: 2.0         # 加速度标准差（影响速度变化）
+    std_yaw_rate: 0.5    # 角速度变化标准差
+    std_size: 0.1        # 尺寸变化标准差
+    # lost_age_adaptive 通过 Track 自动处理，无需单独配置
+
+  # 观测噪声（检测不确定性）
+  measurement_noise:
+    std_cx: 5.0          # 中心x坐标标准差（像素）
+    std_cy: 5.0          # 中心y坐标标准差（像素）
+    std_w: 10.0          # 宽度标准差（像素）
+    std_h: 10.0          # 高度标准差（像素）
+    score_adaptive: true # 是否根据检测置信度自适应调整R
+    size_adaptive: false # 是否根据目标尺寸自适应调整R
+    border_adaptive: false  # 是否根据边界距离自适应调整R
+    aspect_adaptive: false  # 是否根据宽高比自适应调整R
+
+  # 初始协方差
+  initial_covariance:
+    std_cx: 10.0
+    std_cy: 10.0
+    std_v: 5.0
+    std_theta: 0.5
+    std_omega: 0.2
+    std_w: 20.0
+    std_h: 20.0
+
+  # 数值稳定性
+  omega_threshold: 0.001  # omega接近0的阈值，使用直线近似
+
+# 轨迹预测配置
+prediction:
+  future_steps: [1, 5, 10]     # 预测未来帧数列表
+  min_hits_for_prediction: 3   # 触发预测的最少命中帧数
+  max_position_cov_trace: 1.0e+6  # 位置协方差迹上限（超过则不输出预测）
+  fixed_lag_smoothing: false   # 是否启用固定滞后平滑（离线视频模式可开启）
+  smoothing_lag: 3             # 固定滞后帧数
+  smooth_history: true         # 是否平滑历史轨迹
+  smooth_window: 5             # 平滑窗口大小
+
+# 可视化配置
+visualization:
+  draw_bbox: true             # 绘制检测框
+  draw_tracks: true           # 绘制历史轨迹
+  draw_future: true           # 绘制未来预测轨迹
+  draw_covariance: true       # 绘制协方差椭圆
+  draw_id: true               # 绘制目标ID
+  draw_score: true            # 绘制置信度
+  draw_state: false           # 绘制轨迹状态
+  track_history_len: 30       # 历史轨迹显示长度
+  future_color: [0, 255, 255] # 预测轨迹颜色（BGR）
+  covariance_alpha: 0.3       # 协方差椭圆透明度
+  font_scale: 0.5
+  line_thickness: 2
+
+# 输出配置
+output:
+  save_video: true
+  save_json: true
+  save_csv: true
+  video_fps: 25
+  video_codec: mp4v
+  output_dir: outputs/
+
+# 日志配置
+logging:
+  level: INFO
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  file: null              # 日志文件路径（null=只输出到控制台）

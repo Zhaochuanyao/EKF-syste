@@ -1,0 +1,45 @@
+# UA-DETRAC 主实验配置 - 正式实验用
+_base_: configs/base.yaml
+
+runtime:
+  frame_skip: 1
+  max_frames: null
+  device: cpu
+
+detector:
+  backend: ultralytics
+  model: yolov8n
+  weights: weights/yolov8n.pt
+  imgsz: 640
+  conf: 0.30
+  iou: 0.45
+  max_det: 100
+  classes: null          # 检测所有类别
+
+tracker:
+  dt: 0.04
+  auto_dt: true
+  n_init: 3
+  max_age: 20
+  second_stage_match: true
+  second_stage_conf: 0.1
+
+prediction:
+  future_steps: [1, 5, 10]
+
+visualization:
+  draw_bbox: true
+  draw_tracks: true
+  draw_future: true
+  draw_covariance: false  # 正式实验关闭椭圆，减少视觉干扰
+  track_history_len: 30
+
+output:
+  save_video: true
+  save_json: true
+  save_csv: true
+  output_dir: outputs/ua_detrac/
+
+data:
+  root: data/UA-DETRAC/
+  video_path: data/UA-DETRAC/DETRAC-test-data/

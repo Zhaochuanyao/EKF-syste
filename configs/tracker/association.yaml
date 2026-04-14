@@ -1,0 +1,16 @@
+# 数据关联配置
+association:
+  # 第一阶段：高分检测框关联
+  iou_threshold: 0.3
+  max_iou_distance: 0.7
+  max_mahal_distance: 9.4877   # chi2(0.95, df=4)
+  gating_threshold: 9.4877
+
+  # 代价融合
+  cost_iou_weight: 0.5
+  cost_mahal_weight: 0.5
+
+  # 第二阶段：低分检测框关联（仅IoU）
+  second_stage_match: true
+  second_stage_conf: 0.1
+  second_stage_iou_threshold: 0.5

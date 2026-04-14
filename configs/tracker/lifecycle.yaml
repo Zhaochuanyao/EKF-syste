@@ -1,0 +1,6 @@
+# 轨迹生命周期配置
+lifecycle:
+  n_init: 3             # 连续命中N帧后确认轨迹
+  max_age: 20           # 最大丢失帧数，超过则删除
+  min_hits: 1           # 最小命中次数
+  min_det_score: 0.1    # 创建新轨迹的最低检测分数

@@ -1,0 +1,45 @@
+# Demo CPU 实验配置 - 适合普通笔记本快速演示
+# 此配置会覆盖 base.yaml 中的对应值
+
+_base_: configs/base.yaml
+
+runtime:
+  frame_skip: 2          # 每2帧处理1帧，提升速度
+  max_frames: 500        # 限制最多处理500帧，快速演示
+  device: cpu
+
+detector:
+  backend: ultralytics
+  model: yolov8n
+  weights: weights/yolov8n.pt
+  imgsz: 640
+  conf: 0.35
+  iou: 0.5
+  max_det: 50            # 限制最大检测数，减少计算量
+  classes: [0, 2]        # 只检测 person 和 car
+
+tracker:
+  dt: 0.04
+  auto_dt: true
+  n_init: 3
+  max_age: 15            # 稍短的生命周期，减少内存
+  second_stage_match: true
+
+prediction:
+  future_steps: [1, 5, 10]
+
+visualization:
+  draw_bbox: true
+  draw_tracks: true
+  draw_future: true
+  draw_covariance: true
+  track_history_len: 20
+
+output:
+  save_video: true
+  save_json: true
+  save_csv: true
+  output_dir: outputs/demo/
+
+data:
+  video_path: assets/samples/demo.mp4

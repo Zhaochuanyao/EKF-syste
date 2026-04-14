@@ -1,0 +1,18 @@
+# 训练配置（可选功能，默认不执行训练）
+train:
+  enabled: false          # 默认不训练
+  model: yolov8n.pt       # 基础模型
+  data: configs/data/ua_detrac.yaml  # 数据集配置
+  epochs: 50
+  imgsz: 640
+  batch: 8                # 小batch适合笔记本
+  device: cpu
+  workers: 2
+  project: outputs/train
+  name: yolov8n_custom
+  exist_ok: true
+  pretrained: true
+  optimizer: SGD
+  lr0: 0.01
+  patience: 10            # 早停
+  save_period: 10

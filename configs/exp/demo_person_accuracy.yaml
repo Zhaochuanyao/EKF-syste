@@ -1,0 +1,70 @@
+# demo_person_accuracy.yaml
+# 行人场景精度优先配置
+# 目标：最大化行人轨迹连续性和未来轨迹预测准确性
+# 适用场景：室内外行人跟踪、行人轨迹预测研究
+
+_base_: configs/base.yaml
+
+runtime:
+  frame_skip: 1          # 不跳帧，保持最高时间分辨率
+  device: cpu
+
+detector:
+  conf: 0.35             # 行人检测阈值（不宜过高，避免漏检）
+  classes: [0]           # 只检测 person（COCO class 0）
+  max_det: 30            # 行人场景通常不超过30个目标
+  min_area: 400.0        # 行人框最小面积（约 20×20 像素）
+  min_short_side: 20.0   # 行人框最小短边
+  min_aspect: 0.2        # 行人宽高比最小值（宽/高，站立人约 0.3-0.6）
+  max_aspect: 3.0        # 行人宽高比最大值（水平行走时较宽）
+  border_margin: 5.0     # 过滤紧贴边界的截断检测
+
+tracker:
+  n_init: 2              # 行人场景轨迹确认帧数（2帧更快确认，减少碎片化）
+  max_age: 25            # 行人可能短暂遮挡，适当延长
+
+  # 三阶段关联 - 行人优化
+  high_conf_threshold: 0.55    # 高置信度门限（行人检测置信度分布偏低）
+  low_conf_threshold: 0.25     # 低置信度门限（允许弱检测参与补匹配）
+  gating_threshold_confirmed: 9.4877  # 标准 chi2 门控
+  cost_iou_weight: 0.35        # IoU 权重（行人重叠时 IoU 区分度差，降权）
+  cost_mahal_weight: 0.45      # Mahalanobis 权重（运动一致性更重要）
+  cost_center_weight_confirmed: 0.2
+  cost_threshold_a: 0.75       # 略严格，减少误匹配
+  iou_threshold_b: 0.3         # 低置信度补匹配宽松 IoU
+  iou_threshold_c: 0.25        # Tentative 匹配阈值
+
+  min_create_score: 0.35       # 行人检测噪声较多，提高创建门限
+  anchor_mode: bottom_center   # 行人底部中心更稳定（脚点），减少垂直抖动
+
+ekf:
+  process_noise:
+    std_acc: 3.0         # 行人有突然停步/转向，加速度噪声适当增大
+    std_yaw_rate: 0.8    # 行人转向率噪声
+    std_size: 0.05       # 行人尺寸变化较小
+  measurement_noise:
+    std_cx: 4.0          # 行人水平检测较准
+    std_cy: 8.0          # 行人垂直方向（底部）检测误差较大
+    std_w: 8.0
+    std_h: 12.0
+    score_adaptive: true
+    size_adaptive: false
+    border_adaptive: true   # 开启边界自适应（靠近边界的行人检测不准）
+    aspect_adaptive: true   # 开启宽高比自适应
+  initial_covariance:
+    std_cx: 8.0
+    std_cy: 8.0
+    std_v: 30.0          # 行人速度变化范围大，初始不确定性大
+    std_theta: 1.0       # 行人初始方向完全未知
+    std_omega: 0.5
+    std_w: 15.0
+    std_h: 25.0          # 行人高度变化（蹲下/站立）不确定性大
+
+prediction:
+  future_steps: [1, 5, 10]
+  min_hits_for_prediction: 3   # 至少 3 次确认后才预测
+  max_position_cov_trace: 500.0   # 行人场景位置不确定性上限更严格
+  fixed_lag_smoothing: false
+
+output:
+  output_dir: outputs/person_accuracy/

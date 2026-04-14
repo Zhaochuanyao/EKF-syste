@@ -1,0 +1,39 @@
+"""API 数据模式定义"""
+from typing import Dict, List, Optional, Tuple
+from pydantic import BaseModel
+
+
+class BBox(BaseModel):
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+class TrackInfo(BaseModel):
+    track_id: int
+    bbox: BBox
+    score: float
+    class_id: int
+    class_name: str
+    state: str
+    center: Tuple[float, float]
+    future_points: Dict[int, Tuple[float, float]] = {}
+
+
+class FramePredictRequest(BaseModel):
+    """单帧预测请求（base64 编码图像）"""
+    image_base64: str
+    frame_id: int = 0
+
+
+class FramePredictResponse(BaseModel):
+    frame_id: int
+    tracks: List[TrackInfo]
+    num_detections: int
+    process_time_ms: float
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str = "1.0.0"

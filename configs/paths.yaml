@@ -1,0 +1,20 @@
+# 路径配置
+paths:
+  # 权重目录
+  weights_dir: weights/
+
+  # 数据目录
+  data_dir: data/
+
+  # 输出目录
+  output_dir: outputs/
+
+  # 日志目录
+  log_dir: logs/
+
+  # 示例资源
+  sample_video: assets/samples/demo.mp4
+
+  # 数据集路径（根据实际情况修改）
+  ua_detrac_root: data/UA-DETRAC/
+  mot17_root: data/MOT17/

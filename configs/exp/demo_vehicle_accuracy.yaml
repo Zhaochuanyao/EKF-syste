@@ -1,0 +1,70 @@
+# demo_vehicle_accuracy.yaml
+# 车辆场景稳定跟踪与预测配置
+# 目标：最大化车辆轨迹稳定性和未来预测准确性（CTRV 模型最适合车辆）
+# 适用场景：交通监控、路口跟踪、车辆运动预测
+
+_base_: configs/base.yaml
+
+runtime:
+  frame_skip: 1
+  device: cpu
+
+detector:
+  conf: 0.4              # 车辆检测置信度（车辆检测通常置信度较高）
+  classes: [2, 3, 5, 7]  # car=2, motorcycle=3, bus=5, truck=7 (COCO)
+  max_det: 50            # 交通场景车辆数量
+  min_area: 1600.0       # 车辆框最小面积（约 40×40 像素）
+  min_short_side: 30.0   # 车辆框最小短边
+  min_aspect: 0.3        # 车辆宽高比最小值
+  max_aspect: 8.0        # 车辆宽高比最大值（长车侧视时）
+  border_margin: 3.0     # 过滤贴边车辆（截断时测量不准）
+
+tracker:
+  n_init: 3              # 车辆场景轨迹确认（3帧，避免路灯/标志误触发）
+  max_age: 30            # 车辆遮挡时间可能较长（被大型车辆遮挡）
+
+  # 三阶段关联 - 车辆优化
+  high_conf_threshold: 0.5
+  low_conf_threshold: 0.2
+  gating_threshold_confirmed: 9.4877
+  cost_iou_weight: 0.45        # IoU 权重（车辆 bbox 较大，IoU 区分度好）
+  cost_mahal_weight: 0.35      # Mahalanobis 权重
+  cost_center_weight_confirmed: 0.2
+  cost_threshold_a: 0.8
+  iou_threshold_b: 0.35
+  iou_threshold_c: 0.3
+
+  min_create_score: 0.4        # 车辆检测质量更高，可以提高创建门限
+  anchor_mode: center          # 车辆使用几何中心（更均衡）
+
+ekf:
+  process_noise:
+    std_acc: 1.5         # 车辆加速度较小（受限于道路和交通法规）
+    std_yaw_rate: 0.3    # 车辆转向率变化较平稳
+    std_size: 0.05       # 车辆尺寸几乎不变化
+  measurement_noise:
+    std_cx: 5.0
+    std_cy: 5.0
+    std_w: 15.0          # 车辆宽度检测误差较大（角度变化）
+    std_h: 10.0
+    score_adaptive: true
+    size_adaptive: true     # 大型车辆（卡车/巴士）检测误差更大
+    border_adaptive: false
+    aspect_adaptive: true   # 车辆在不同角度下宽高比变化大
+  initial_covariance:
+    std_cx: 10.0
+    std_cy: 10.0
+    std_v: 50.0          # 车辆初始速度不确定性大（可能 0~120 km/h）
+    std_theta: 0.8       # 车辆初始方向未知
+    std_omega: 0.2       # 车辆角速度变化较平稳
+    std_w: 25.0
+    std_h: 15.0
+
+prediction:
+  future_steps: [1, 5, 10]
+  min_hits_for_prediction: 4   # 车辆需要更多帧确认运动方向（CTRV 需要历史）
+  max_position_cov_trace: 2000.0   # 车辆场景位置不确定性上限
+  fixed_lag_smoothing: false
+
+output:
+  output_dir: outputs/vehicle_accuracy/

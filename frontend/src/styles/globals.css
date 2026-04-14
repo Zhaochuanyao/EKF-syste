@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased;
+    font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  }
+
+  /* 滚动条样式 */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-600 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-500;
+  }
+}
+
+@layer components {
+  /* 卡片 */
+  .card {
+    @apply bg-slate-900 border border-slate-800 rounded-xl;
+  }
+
+  /* 主按钮 */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-blue-600 hover:bg-blue-500 active:bg-blue-700
+           text-white font-medium rounded-lg px-4 py-2.5
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* 次级按钮 */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-slate-800 hover:bg-slate-700 active:bg-slate-900
+           text-slate-200 font-medium rounded-lg px-4 py-2.5
+           border border-slate-700 hover:border-slate-600
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* 危险按钮 */
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2
+           bg-red-600/20 hover:bg-red-600/30 active:bg-red-700/40
+           text-red-400 font-medium rounded-lg px-4 py-2.5
+           border border-red-600/30
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* 输入框 */
+  .input {
+    @apply bg-slate-800 border border-slate-700 rounded-lg px-3 py-2
+           text-slate-100 placeholder-slate-500
+           focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50
+           transition-colors;
+  }
+
+  /* 标签 */
+  .label {
+    @apply text-sm font-medium text-slate-400 mb-1.5 block;
+  }
+}
+
+/* 进度条动画 */
+@keyframes progressStripe {
+  0% { background-position: 40px 0; }
+  100% { background-position: 0 0; }
+}
+
+.progress-stripe {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.08) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.08) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 40px 40px;
+  animation: progressStripe 1s linear infinite;
+}

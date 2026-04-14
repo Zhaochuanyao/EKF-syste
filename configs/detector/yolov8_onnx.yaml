@@ -1,0 +1,16 @@
+# YOLOv8n ONNX 推理配置
+detector:
+  backend: onnx
+  model: yolov8n
+  onnx_path: weights/yolov8n.onnx
+  imgsz: 640
+  conf: 0.35
+  iou: 0.5
+  max_det: 100
+  classes: null
+  half: false
+  warmup_iters: 2
+  device: cpu
+  # ONNX Runtime 特定配置
+  onnx_providers: ["CPUExecutionProvider"]
+  onnx_num_threads: 4
