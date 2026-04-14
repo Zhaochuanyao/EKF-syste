@@ -141,7 +141,7 @@ export default function UploadPredictPage() {
     showTracks: true,
     showFuture: true,
     frameSkip: 1,
-    configName: 'base',
+    configName: 'demo_vehicle_accuracy',
   });
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -270,9 +270,9 @@ export default function UploadPredictPage() {
                 className="input w-full text-sm"
                 disabled={isProcessing}
               >
-                <option value="base">自动（默认）</option>
+                <option value="demo_vehicle_accuracy">车辆稳定模式（默认）</option>
+                <option value="base">自动（通用）</option>
                 <option value="demo_person_accuracy">行人精度模式</option>
-                <option value="demo_vehicle_accuracy">车辆稳定模式</option>
               </select>
             </div>
 

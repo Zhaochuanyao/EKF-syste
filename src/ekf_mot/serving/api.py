@@ -125,7 +125,7 @@ async def predict_video_start(
     show_tracks: bool = Query(default=True, description="是否绘制轨迹框"),
     show_future: bool = Query(default=True, description="是否绘制预测点"),
     frame_skip: int = Query(default=1, ge=1, le=10, description="跳帧间隔"),
-    config_name: str = Query(default="base", description="配置名称"),
+    config_name: str = Query(default="demo_vehicle_accuracy", description="配置名称"),
 ):
     """
     启动异步视频处理任务。

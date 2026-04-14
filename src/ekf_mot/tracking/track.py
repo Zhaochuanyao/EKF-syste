@@ -238,7 +238,7 @@ class Track:
             self._obs_headings.pop(0)
 
         # 第 2 次命中：初始化 v 和 theta（若 EKF 速度仍接近 0）
-        if abs(float(self.ekf.x[2])) < 1.0:
+        if abs(float(self.ekf.x[2])) < 5.0:
             self.ekf.set_kinematics(v=v_est, theta=theta_est)
 
         # ── 估计角速度 omega ──────────────────────────────────
@@ -246,8 +246,8 @@ class Track:
             prev_heading = self._obs_headings[-2]
             dtheta = self._normalize_angle(theta_est - prev_heading)
             omega_est = dtheta / dt
-            # 仅当角速度估计合理时更新（避免噪声导致的虚假角速度）
-            if abs(omega_est) < 5.0:  # 最大 5 rad/s ≈ 286 °/s
+            # 车辆正常转弯 < 1.0 rad/s，限制避免噪声导致虚假角速度
+            if abs(omega_est) < 1.0:
                 self.ekf.set_kinematics(omega=omega_est)
 
     def _update_stability(self) -> None:

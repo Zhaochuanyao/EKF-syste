@@ -17,7 +17,7 @@ Baseline vs EKF 轨迹质量对比脚本
 ----
   python scripts/compare_baseline_vs_ekf.py \\
       --video assets/samples/demo.mp4 \\
-      --config configs/exp/demo_cpu.yaml \\
+      --config configs/exp/demo_vehicle_accuracy.yaml \\
       --output outputs/comparison/ \\
       --max-frames 300
 
@@ -275,6 +275,30 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
     smooth_imprv = _improvement(baseline["avg_smoothness"], ekf["avg_smoothness"], lower_is_better=True)
     len_imprv = _improvement(baseline["avg_track_length"], ekf["avg_track_length"], lower_is_better=False)
 
+    # 动态结论：根据实际数值判断各维度优劣
+    def _verdict(base_val: float, ekf_val: float, lower_is_better: bool, name: str) -> str:
+        if base_val == 0:
+            return f"{name} 无法比较（Baseline 为 0）"
+        if lower_is_better:
+            return f"{name}：EKF {'更优' if ekf_val < base_val else '更差'}（{ekf_val:.3f} vs {base_val:.3f}）"
+        else:
+            return f"{name}：EKF {'更优' if ekf_val > base_val else '更差'}（{ekf_val:.2f} vs {base_val:.2f}）"
+
+    ekf_tracks = ekf["num_tracks"]
+    base_tracks = baseline["num_tracks"]
+    track_count_note = (
+        f"轨迹数量：EKF {ekf_tracks} vs Baseline {base_tracks}"
+        + ("（EKF 碎片化更少）" if ekf_tracks <= base_tracks else "（EKF 碎片化更多，建议调整参数）")
+    )
+
+    conclusion_lines = [
+        "EKF 系统相比 Baseline：",
+        f"  {_verdict(baseline['avg_jitter'], ekf['avg_jitter'], True, '轨迹抖动')}，改善 {jitter_imprv}",
+        f"  {_verdict(baseline['avg_smoothness'], ekf['avg_smoothness'], True, '轨迹平滑度')}，改善 {smooth_imprv}",
+        f"  {_verdict(baseline['avg_track_length'], ekf['avg_track_length'], False, '平均轨迹长度')}，变化 {len_imprv}",
+        f"  {track_count_note}",
+    ]
+
     return {
         "video": baseline.get("video", ""),
         "num_frames": baseline.get("num_frames", 0),
@@ -292,9 +316,9 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
                 "note": "帧间加速度均值（越小越平滑）",
             },
             "num_tracks": {
-                "baseline": baseline["num_tracks"],
-                "ekf": ekf["num_tracks"],
-                "note": "总轨迹数量",
+                "baseline": base_tracks,
+                "ekf": ekf_tracks,
+                "note": "总轨迹数量（越少碎片化越低）",
             },
             "avg_track_length": {
                 "baseline": baseline["avg_track_length"],
@@ -303,12 +327,7 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
                 "note": "平均轨迹持续帧数（越长连续性越好）",
             },
         },
-        "conclusion": (
-            f"EKF 系统相比 Baseline：\n"
-            f"  轨迹抖动减少 {jitter_imprv}，轨迹平滑度改善 {smooth_imprv}，\n"
-            f"  平均轨迹长度变化 {len_imprv}。\n"
-            f"  抖动和平滑度的正向改善说明 EKF 滤波有效抑制了检测噪声。"
-        ),
+        "conclusion": "\n".join(conclusion_lines),
     }
 
 
@@ -323,7 +342,7 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("--video", default="assets/samples/demo.mp4", help="输入视频路径")
-    parser.add_argument("--config", default="configs/exp/demo_cpu.yaml", help="EKF 配置文件")
+    parser.add_argument("--config", default="configs/exp/demo_vehicle_accuracy.yaml", help="EKF 配置文件")
     parser.add_argument("--output", default="outputs/comparison/", help="输出目录")
     parser.add_argument("--weights", default="weights/yolov8n.pt", help="YOLOv8n 权重")
     parser.add_argument("--max-frames", type=int, default=300, help="最大处理帧数")

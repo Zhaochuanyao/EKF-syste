@@ -14,7 +14,7 @@ from src.ekf_mot.main import run_tracking
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="EKF 跟踪演示")
-    parser.add_argument("--config", default="configs/exp/demo_cpu.yaml")
+    parser.add_argument("--config", default="configs/exp/demo_vehicle_accuracy.yaml")
     parser.add_argument("--video", default=None, help="视频路径（覆盖配置）")
     parser.add_argument("--output", default="outputs/demo/")
     parser.add_argument("--max-frames", type=int, default=300)

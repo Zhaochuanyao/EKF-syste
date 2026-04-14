@@ -142,6 +142,7 @@ export default function CameraPredictPage() {
   const [showTracks, setShowTracks] = useState(true);
   const [showFuture, setShowFuture] = useState(true);
   const [fps, setFps] = useState(5);
+  const [configName, setConfigName] = useState('demo_vehicle_accuracy');
 
   const frameIdRef = useRef(0);
   const isPredictingRef = useRef(false);
@@ -181,7 +182,7 @@ export default function CameraPredictPage() {
       ctx2.drawImage(video, 0, 0);
       const b64 = cap.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-      const resp = await predictFrame(b64, frameIdRef.current++);
+      const resp = await predictFrame(b64, frameIdRef.current++, configName);
 
       // 绘制叠加层
       if (canvasRef.current) {
@@ -441,6 +442,21 @@ export default function CameraPredictPage() {
                 </select>
               </div>
             )}
+
+            {/* 处理模式 */}
+            <div>
+              <label className="label">处理模式</label>
+              <select
+                value={configName}
+                onChange={(e) => setConfigName(e.target.value)}
+                className="input w-full text-sm"
+                disabled={predictPhase === 'predicting'}
+              >
+                <option value="demo_vehicle_accuracy">车辆稳定模式（默认）</option>
+                <option value="base">自动（通用）</option>
+                <option value="demo_person_accuracy">行人精度模式</option>
+              </select>
+            </div>
 
             {/* 采样频率 */}
             <div>

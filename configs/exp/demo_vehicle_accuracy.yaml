@@ -20,21 +20,21 @@ detector:
   border_margin: 3.0     # 过滤贴边车辆（截断时测量不准）
 
 tracker:
-  n_init: 3              # 车辆场景轨迹确认（3帧，避免路灯/标志误触发）
-  max_age: 30            # 车辆遮挡时间可能较长（被大型车辆遮挡）
+  n_init: 2              # 降低确认门限：2帧即确认，减少轨迹碎片化
+  max_age: 40            # 延长 Lost 容忍：车辆遮挡可能持续更长
 
-  # 三阶段关联 - 车辆优化
+  # 三阶段关联 - 车辆优化（放宽门控，提高连续性）
   high_conf_threshold: 0.5
-  low_conf_threshold: 0.2
-  gating_threshold_confirmed: 9.4877
-  cost_iou_weight: 0.45        # IoU 权重（车辆 bbox 较大，IoU 区分度好）
-  cost_mahal_weight: 0.35      # Mahalanobis 权重
+  low_conf_threshold: 0.15     # 放宽低置信度门限，允许更多检测参与 Stage B
+  gating_threshold_confirmed: 13.277  # 放宽至 chi2(0.997, df=4)，减少 Lost 断轨
+  cost_iou_weight: 0.5         # 提高 IoU 权重（车辆 bbox 大，IoU 区分度好）
+  cost_mahal_weight: 0.3       # 降低 Mahal 权重（避免过严门控断轨）
   cost_center_weight_confirmed: 0.2
-  cost_threshold_a: 0.8
-  iou_threshold_b: 0.35
-  iou_threshold_c: 0.3
+  cost_threshold_a: 0.85       # 放宽 Stage A 关联门限
+  iou_threshold_b: 0.25        # 放宽 Stage B IoU 门限（遮挡后 IoU 偏低）
+  iou_threshold_c: 0.2         # 放宽 Stage C IoU 门限
 
-  min_create_score: 0.4        # 车辆检测质量更高，可以提高创建门限
+  min_create_score: 0.45       # 提高创建门限，减少误检触发新轨迹
   anchor_mode: center          # 车辆使用几何中心（更均衡）
 
 ekf:

@@ -43,11 +43,13 @@ export async function checkHealth(): Promise<HealthResponse> {
 export async function predictFrame(
   imageBase64: string,
   frameId: number = 0,
+  configName: string = 'demo_vehicle_accuracy',
 ): Promise<FramePredictResponse> {
   try {
     const { data } = await client.post<FramePredictResponse>('/predict/frame', {
       image_base64: imageBase64,
       frame_id: frameId,
+      config_name: configName,
     });
     return data;
   } catch (err) {
@@ -65,7 +67,7 @@ export async function startVideoTask(
     showTracks = true,
     showFuture = true,
     frameSkip = 1,
-    configName = 'base',
+    configName = 'demo_vehicle_accuracy',
     onUploadProgress,
   } = options;
 
