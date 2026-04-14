@@ -1,0 +1,96 @@
+# scenario_turning_motion.yaml
+# ──────────────────────────────────────────────────────────────
+# 场景：转弯运动 (Turning / Curved Motion)
+#
+# 测试重点：
+#   - 目标做大曲率转弯（交叉路口车辆、弯道运动）
+#   - 验证 CTRV 模型相对于线性模型（Baseline）的优势
+#   - EKF 应利用 omega（角速度）状态预测弧形轨迹
+#   - 预期：转弯场景下 ADE/FDE 显著低于 Baseline 线性外推
+#
+# 参数调整原则：
+#   - 提高 std_yaw_rate（允许角速度大幅变化，适应不同转弯半径）
+#   - 适当增大 std_acc（转弯常伴随减速）
+#   - 放宽 Mahalanobis 门控（非线性运动导致预测误差偏大）
+#   - 降低初始 omega 不确定性以加快角速度估计收敛
+# ──────────────────────────────────────────────────────────────
+
+_base_: configs/base.yaml
+
+runtime:
+  frame_skip: 1
+  max_frames: 400
+  device: cpu
+
+detector:
+  backend: ultralytics
+  weights: weights/yolov8n.pt
+  imgsz: 640
+  conf: 0.35
+  iou: 0.5
+  classes: [2, 7]        # car + truck（车辆转弯场景）
+
+tracker:
+  n_init: 3
+  max_age: 20
+  auto_dt: true
+
+  # 三阶段关联 - 转弯场景：平衡 IoU 与 Mahal（转弯时两者偏差都会增大）
+  high_conf_threshold: 0.5
+  low_conf_threshold: 0.1
+  gating_threshold_confirmed: 13.277  # ★ 放宽门控（chi2 df=4, 99.7% 分位数）
+  cost_iou_weight: 0.4
+  cost_mahal_weight: 0.4             # 转弯：IoU 与 Mahal 同等重要
+  cost_center_weight_confirmed: 0.2
+  cost_threshold_a: 0.90             # 放宽关联门限（转弯时 cost 较高）
+  iou_threshold_b: 0.30
+  iou_threshold_c: 0.25
+  anchor_mode: center
+
+ekf:
+  process_noise:
+    std_acc: 3.0         # 转弯伴随适度减速
+    std_yaw_rate: 1.5    # ★ 转弯关键参数：高角速度变化率（适应各种转弯半径）
+    std_size: 0.05
+  measurement_noise:
+    std_cx: 6.0          # 转弯时目标形态变化，检测框抖动稍大
+    std_cy: 6.0
+    std_w: 12.0
+    std_h: 10.0
+    score_adaptive: true
+    size_adaptive: true  # ★ 开启尺寸自适应（转弯时目标尺度变化大）
+  initial_covariance:
+    std_cx: 10.0
+    std_cy: 10.0
+    std_v: 5.0
+    std_theta: 0.5
+    std_omega: 0.5       # ★ 转弯：初始角速度不确定性较高（不知道转弯方向）
+    std_w: 20.0
+    std_h: 20.0
+  omega_threshold: 0.005 # 降低退化阈值，使 CTRV 更积极地使用弧形模型
+
+prediction:
+  future_steps: [1, 5, 10]
+  min_hits_for_prediction: 4         # 转弯需要更多帧来估计 omega
+  max_position_cov_trace: 2.0e+6     # 允许更大的位置不确定性
+
+visualization:
+  draw_future: true
+  draw_covariance: true              # ★ 协方差椭圆在转弯方向上会明显拉伸
+  track_history_len: 40             # ★ 更长的历史轨迹以展示弧形轨迹
+
+output:
+  save_video: true
+  save_json: true
+  save_csv: true
+  output_dir: outputs/scenario_turning/
+
+# 实验说明（供 run_experiments.py 读取）
+experiment:
+  name: turning_motion
+  scenario: "转弯运动"
+  description: "高机动性非线性场景，验证 CTRV 模型相对线性 Baseline 的优势"
+  metrics_focus:
+    - "EKF ADE/FDE 应显著低于 Baseline 线性外推"
+    - "协方差椭圆沿转弯方向延伸（不确定性方向正确）"
+    - "omega 状态在转弯中估计收敛，轨迹吻合弧形"

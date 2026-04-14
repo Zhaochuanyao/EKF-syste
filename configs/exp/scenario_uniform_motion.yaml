@@ -1,0 +1,93 @@
+# scenario_uniform_motion.yaml
+# ──────────────────────────────────────────────────────────────
+# 场景：匀速直线运动 (Uniform Motion)
+#
+# 测试重点：
+#   - 目标以接近匀速直线运动（如高速公路车辆、走廊行人）
+#   - 评估 EKF 在低机动性场景下的轨迹稳定性与预测精度
+#   - 预期：轨迹抖动低，预测误差（ADE/FDE）小
+#
+# 参数调整原则：
+#   - 降低过程噪声（std_acc/std_yaw_rate），使 EKF 更信任运动模型
+#   - 适当收紧 Mahalanobis 门控，减少误匹配
+#   - 增大预测步数以展示长程预测精度
+# ──────────────────────────────────────────────────────────────
+
+_base_: configs/base.yaml
+
+runtime:
+  frame_skip: 1          # 不跳帧，保留最高时间分辨率
+  max_frames: 400
+  device: cpu
+
+detector:
+  backend: ultralytics
+  weights: weights/yolov8n.pt
+  imgsz: 640
+  conf: 0.40             # 适当提高置信度阈值，减少低质量检测
+  iou: 0.5
+  classes: [0, 2]        # person + car
+
+tracker:
+  n_init: 3
+  max_age: 20
+  auto_dt: true
+
+  # 三阶段关联 - 匀速场景：加重运动一致性
+  high_conf_threshold: 0.5
+  low_conf_threshold: 0.1
+  gating_threshold_confirmed: 7.815   # 收紧门控（chi2 df=4, 95% → 更严格匹配）
+  cost_iou_weight: 0.3
+  cost_mahal_weight: 0.5             # 匀速场景：运动预测可靠，提高 Mahal 权重
+  cost_center_weight_confirmed: 0.2
+  cost_threshold_a: 0.75
+  iou_threshold_b: 0.4
+  iou_threshold_c: 0.3
+  anchor_mode: center
+
+ekf:
+  process_noise:
+    std_acc: 0.5         # ★ 匀速关键参数：低加速度噪声（模型信任运动预测）
+    std_yaw_rate: 0.1    # ★ 匀速场景几乎无转向，角速度噪声极小
+    std_size: 0.05       # 匀速场景目标尺寸变化小
+  measurement_noise:
+    std_cx: 5.0
+    std_cy: 5.0
+    std_w: 10.0
+    std_h: 10.0
+    score_adaptive: true
+    size_adaptive: false
+  initial_covariance:
+    std_cx: 10.0
+    std_cy: 10.0
+    std_v: 3.0           # 初始速度不确定性小（期待匀速）
+    std_theta: 0.3       # 初始方向不确定性小
+    std_omega: 0.1
+    std_w: 20.0
+    std_h: 20.0
+
+prediction:
+  future_steps: [1, 5, 10, 20]       # ★ 多步预测以展示匀速场景的长程精度
+  min_hits_for_prediction: 3
+  max_position_cov_trace: 1.0e+6
+
+visualization:
+  draw_future: true
+  draw_covariance: true
+  track_history_len: 30
+
+output:
+  save_video: true
+  save_json: true
+  save_csv: true
+  output_dir: outputs/scenario_uniform/
+
+# 实验说明（供 run_experiments.py 读取）
+experiment:
+  name: uniform_motion
+  scenario: "匀速直线运动"
+  description: "低机动性场景，测试 EKF 轨迹稳定性与长程预测精度"
+  metrics_focus:
+    - "轨迹抖动 (Jitter) 应显著低于 Baseline"
+    - "ADE/FDE 在多步预测中保持较低"
+    - "轨迹连续性好（长均值轨迹长度）"

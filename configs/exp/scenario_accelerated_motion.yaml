@@ -1,0 +1,94 @@
+# scenario_accelerated_motion.yaml
+# ──────────────────────────────────────────────────────────────
+# 场景：变速运动 (Accelerated / Decelerated Motion)
+#
+# 测试重点：
+#   - 目标速度随时间变化（加速、减速、急刹）
+#   - 评估 EKF 在中等机动性场景下的预测误差
+#   - 对比匀速场景：ADE/FDE 应更大，轨迹平滑度略低
+#   - 验证自适应过程噪声对速度突变的响应能力
+#
+# 参数调整原则：
+#   - 提高 std_acc（允许更大加速度变化）
+#   - 降低 Mahalanobis 门控权重（速度突变导致预测偏差增大）
+#   - 增大初始速度不确定性
+# ──────────────────────────────────────────────────────────────
+
+_base_: configs/base.yaml
+
+runtime:
+  frame_skip: 1
+  max_frames: 400
+  device: cpu
+
+detector:
+  backend: ultralytics
+  weights: weights/yolov8n.pt
+  imgsz: 640
+  conf: 0.35
+  iou: 0.5
+  classes: [0, 2]        # person + car
+
+tracker:
+  n_init: 3
+  max_age: 20
+  auto_dt: true
+
+  # 三阶段关联 - 变速场景：降低运动模型权重，增加 IoU 权重
+  high_conf_threshold: 0.5
+  low_conf_threshold: 0.1
+  gating_threshold_confirmed: 11.07   # 放宽门控（速度突变时预测偏差大）
+  cost_iou_weight: 0.5               # ★ 变速：IoU 更可靠（目标位置近但速度变化大）
+  cost_mahal_weight: 0.3             # ★ 降低 Mahal 权重（预测不可靠）
+  cost_center_weight_confirmed: 0.2
+  cost_threshold_a: 0.85             # 放宽关联门限
+  iou_threshold_b: 0.35
+  iou_threshold_c: 0.25
+  anchor_mode: center
+
+ekf:
+  process_noise:
+    std_acc: 5.0         # ★ 变速关键参数：高加速度噪声（允许速度大幅变化）
+    std_yaw_rate: 0.3    # 变速场景可能伴随轻微转向，稍高
+    std_size: 0.1
+  measurement_noise:
+    std_cx: 5.0
+    std_cy: 5.0
+    std_w: 10.0
+    std_h: 10.0
+    score_adaptive: true
+    size_adaptive: false
+  initial_covariance:
+    std_cx: 10.0
+    std_cy: 10.0
+    std_v: 10.0          # ★ 初始速度不确定性大（不知道目标在加速还是减速）
+    std_theta: 0.5
+    std_omega: 0.2
+    std_w: 20.0
+    std_h: 20.0
+
+prediction:
+  future_steps: [1, 5, 10]           # 标准预测步数
+  min_hits_for_prediction: 3
+  max_position_cov_trace: 1.0e+6
+
+visualization:
+  draw_future: true
+  draw_covariance: true              # 协方差椭圆在变速场景更大，可视化明显
+  track_history_len: 25
+
+output:
+  save_video: true
+  save_json: true
+  save_csv: true
+  output_dir: outputs/scenario_accelerated/
+
+# 实验说明（供 run_experiments.py 读取）
+experiment:
+  name: accelerated_motion
+  scenario: "变速运动"
+  description: "中等机动性场景，测试 EKF 对速度突变的响应与预测误差变化"
+  metrics_focus:
+    - "ADE/FDE 应高于匀速场景（速度预测误差大）"
+    - "协方差椭圆随速度突变而增大（不确定性正确传播）"
+    - "ID Switch 数量应较少（目标未发生几何重叠）"
