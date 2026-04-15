@@ -73,6 +73,7 @@ prediction:
   max_position_cov_trace: 2000.0   # 车辆场景位置不确定性上限
   fixed_lag_smoothing: true    # 启用 EMA 固定滞后平滑，压低历史轨迹高频抖动
   smoothing_lag: 5             # EMA 滞后帧数（alpha = 2/(lag+1) ≈ 0.33）
+  smoothing_alpha: 0.35        # 显式指定 EMA alpha（覆盖 lag 推导值）
 
 output:
   output_dir: outputs/vehicle_accuracy/

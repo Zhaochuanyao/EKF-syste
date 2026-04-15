@@ -260,9 +260,10 @@ def run_ekf(
     predictor = TrajectoryPredictor(
         future_steps=future_steps,
         dt=tracker_cfg.get("dt", 0.04),
-        min_hits_for_prediction=3,
+        min_hits_for_prediction=pred_cfg.get("min_hits_for_prediction", 3),
         fixed_lag_smoothing=pred_cfg.get("fixed_lag_smoothing", False),
         smoothing_lag=pred_cfg.get("smoothing_lag", 3),
+        smoothing_alpha=pred_cfg.get("smoothing_alpha", None),
     )
 
     cap = cv2.VideoCapture(video_path)
