@@ -271,9 +271,9 @@ def associate(
             pos_mahal_2d = _compute_position_mahal_2d(a2_tracks, a2_dets)
             center_c     = center_distance_cost_matrix(a2_tracks, a2_dets, center_norm)
 
-            # 方向代价：小位移时不可靠，置中性值
+            # 方向代价：小位移时不可靠，置低惩罚值
             N2, M2 = len(a2_tracks), len(a2_dets)
-            direction_c = np.full((N2, M2), 0.5, dtype=np.float64)
+            direction_c = np.full((N2, M2), 0.2, dtype=np.float64)
             for i, t in enumerate(a2_tracks):
                 t_cx = float(t.ekf.x[IDX_CX])
                 t_cy = float(t.ekf.x[IDX_CY])
@@ -294,17 +294,17 @@ def associate(
 
             # 每条 lost 轨迹的自适应 gate_i
             gate_arr = np.array([
-                min(11.83 + 0.9 * float(t.time_since_update), 18.0)
+                min(13.5 + 1.2 * float(t.time_since_update), 24.0)
                 for t in a2_tracks
-            ], dtype=np.float64)  # (N2,)
+            ], dtype=np.float64)
 
             cost_a2 = (
-                0.55 * np.clip(pos_mahal_2d / gate_arr[:, None], 0.0, 2.0)
-                + 0.35 * np.clip(center_c, 0.0, 2.0)
+                0.60 * np.clip(pos_mahal_2d / gate_arr[:, None], 0.0, 2.0)
+                + 0.30 * np.clip(center_c, 0.0, 2.0)
                 + 0.10 * direction_c
             )
 
-            # ── 硬门控 ────────────────────────────────────────────
+            # ── 硬门控（只保留类别、位置、超远三条）────────────────
             for i, t in enumerate(a2_tracks):
                 gate_i = gate_arr[i]
                 for j, d in enumerate(a2_dets):
@@ -314,11 +314,7 @@ def associate(
                     if pos_mahal_2d[i, j] > gate_i:
                         cost_a2[i, j] = np.inf
                         continue
-                    # 方向硬门控：仅在方向可靠（非中性 0.5）时启用
-                    if direction_c[i, j] != 0.5 and direction_c[i, j] > 0.93 and center_c[i, j] > 2.0:
-                        cost_a2[i, j] = np.inf
-                        continue
-                    if center_c[i, j] > 2.5:
+                    if center_c[i, j] > 3.0:
                         cost_a2[i, j] = np.inf
 
             matches_a2_local, _, _ = hungarian_match(cost_a2, threshold=cost_threshold_a2)

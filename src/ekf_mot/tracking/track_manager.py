@@ -132,15 +132,15 @@ class TrackManager:
                 self._tracks[idx].mark_missed()
 
     def _has_nearby_recoverable_lost(self, det: Detection) -> bool:
-        """附近是否存在短时 Lost 同类轨迹（放宽窗口至 8 帧，距离阈值 max(60, 0.8*diag)）"""
+        """附近是否存在短时 Lost 同类轨迹（窗口 4 帧，距离阈值 max(45, 0.65*diag)）"""
         det_diag = math.sqrt(det.w * det.w + det.h * det.h)
-        dist_threshold = max(60.0, 0.8 * det_diag)
+        dist_threshold = max(45.0, 0.65 * det_diag)
         for track in self._tracks:
             if not track.is_lost:
                 continue
             if track.class_id != det.class_id:
                 continue
-            if track.time_since_update > 8:
+            if track.time_since_update > 4:
                 continue
             track_cx, track_cy = track.get_center()
             dx = track_cx - det.cx
@@ -170,10 +170,10 @@ class TrackManager:
             if det.score < self.min_create_score:
                 continue
 
-            key = (det.class_id, round(det.cx / 20), round(det.cy / 20))
+            key = (det.class_id, round(det.cx / 30), round(det.cy / 30))
             seen_keys.add(key)
 
-            if self._has_nearby_recoverable_lost(det):
+            if self._has_nearby_recoverable_lost(det) and det.score < 0.75:
                 count = self._pending_births.get(key, 0) + 1
                 self._pending_births[key] = count
                 if count < 2:
@@ -181,7 +181,6 @@ class TrackManager:
                         f"[延迟出生] key={key} count={count} 附近有 Lost 轨迹，等待恢复"
                     )
                     continue
-                # 连续 2 帧仍未恢复，允许创建
                 del self._pending_births[key]
             else:
                 self._pending_births.pop(key, None)
