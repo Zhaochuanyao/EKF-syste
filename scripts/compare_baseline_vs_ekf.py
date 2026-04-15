@@ -254,12 +254,15 @@ def run_ekf(
     cfg_dict = build_config(config_path)
     cfg = Config.from_dict(cfg_dict)
     tracker_cfg = cfg_dict.get("tracker", {})
+    pred_cfg = cfg_dict.get("prediction", {})
 
     tracker = MultiObjectTracker.from_config(cfg)
     predictor = TrajectoryPredictor(
         future_steps=future_steps,
         dt=tracker_cfg.get("dt", 0.04),
         min_hits_for_prediction=3,
+        fixed_lag_smoothing=pred_cfg.get("fixed_lag_smoothing", False),
+        smoothing_lag=pred_cfg.get("smoothing_lag", 3),
     )
 
     cap = cv2.VideoCapture(video_path)
@@ -269,7 +272,8 @@ def run_ekf(
     frame_id = 0
     processed = 0
     elapsed_times = []
-    all_track_histories: Dict[int, List[Tuple[float, float]]] = {}
+    all_track_histories_raw: Dict[int, List[Tuple[float, float]]] = {}
+    all_track_histories_smooth: Dict[int, List[Tuple[float, float]]] = {}
 
     while True:
         ret, frame = cap.read()
@@ -285,16 +289,21 @@ def run_ekf(
         elapsed = (time.perf_counter() - t0) * 1000
         elapsed_times.append(elapsed)
 
-        # 收集轨迹历史（EKF 滤波后的中心点，仅命中帧）
-        # 注意：只在有检测命中（time_since_update == 0）时追加，
-        # 与 Baseline 保持相同采样策略（Baseline 的 history 也只记录命中帧）。
-        # 若包含 predict-only 帧，EKF 的 CTRV 外推漂移会虚增 jitter，导致对比不公平。
+        # 仅命中帧采样（与 Baseline 公平一致）
         for t in active_tracks:
             if t.is_confirmed and t.time_since_update == 0:
                 cx, cy = t.get_center()
-                if t.track_id not in all_track_histories:
-                    all_track_histories[t.track_id] = []
-                all_track_histories[t.track_id].append((cx, cy))
+                # raw 历史
+                if t.track_id not in all_track_histories_raw:
+                    all_track_histories_raw[t.track_id] = []
+                all_track_histories_raw[t.track_id].append((cx, cy))
+                # 更新 EMA 平滑，取最新平滑点
+                predictor.update_smooth(t.track_id, float(cx), float(cy))
+                smooth_hist = predictor.get_smooth_history(t.track_id)
+                if smooth_hist:
+                    if t.track_id not in all_track_histories_smooth:
+                        all_track_histories_smooth[t.track_id] = []
+                    all_track_histories_smooth[t.track_id].append(smooth_hist[-1])
 
         processed += 1
 
@@ -303,9 +312,13 @@ def run_ekf(
 
     cap.release()
 
-    histories = list(all_track_histories.values())
-    quality = _aggregate_track_quality(histories)
+    raw_histories = list(all_track_histories_raw.values())
+    smooth_histories = list(all_track_histories_smooth.values())
+
+    raw_quality = _aggregate_track_quality(raw_histories)
+    smoothed_quality = _aggregate_track_quality(smooth_histories) if smooth_histories else raw_quality
     avg_ms = sum(elapsed_times) / len(elapsed_times) if elapsed_times else 0.0
+    history_mode = "smoothed" if smooth_histories else "raw"
 
     return {
         "method": "ekf_ctrv",
@@ -313,7 +326,12 @@ def run_ekf(
         "num_frames": processed,
         "fps": round(fps, 1),
         "avg_inference_ms": round(avg_ms, 2),
-        **quality,
+        # 主比较使用 smoothed（顶层展开，兼容下游 build_compare_summary）
+        **smoothed_quality,
+        # 诊断信息
+        "raw_quality": raw_quality,
+        "smoothed_quality": smoothed_quality,
+        "history_mode_used": history_mode,
     }
 
 
@@ -441,6 +459,10 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
             },
         },
         "conclusion": "\n".join(conclusion_lines),
+        # 诊断信息（主结论按 smoothed，raw 仅内部参考）
+        "ekf_history_mode": ekf.get("history_mode_used", "raw"),
+        "ekf_raw_quality": ekf.get("raw_quality", {}),
+        "ekf_smoothed_quality": ekf.get("smoothed_quality", {}),
     }
 
 
@@ -557,6 +579,17 @@ def main():
         imprv = val.get("improvement", "")
         logger.info(f"{key:<28} {str(b):>12} {str(e):>12} {imprv:>10}")
     logger.info(f"\n{compare_summary['conclusion']}")
+
+    # ── 诊断：EKF raw vs smoothed ─────────────────────────────
+    mode = ekf_result.get("history_mode_used", "raw")
+    logger.info(f"\n{'='*62}")
+    logger.info(f"EKF 诊断（主结论按 {mode} 轨迹，raw 仅内部参考）:")
+    rq = ekf_result.get("raw_quality", {})
+    sq = ekf_result.get("smoothed_quality", {})
+    for k in ("avg_jitter", "avg_smoothness", "avg_heading_change_std", "avg_velocity_variance"):
+        rv = rq.get(k, "N/A")
+        sv = sq.get(k, "N/A")
+        logger.info(f"  {k:<30} raw={rv}  smoothed={sv}")
 
 
 if __name__ == "__main__":
