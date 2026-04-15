@@ -88,7 +88,7 @@ class TrackManager:
         )
 
         self._tracks: List[Track] = []
-        self._pending_births: Dict[tuple, int] = {}
+        self._pending_births: Dict[tuple, Dict[str, float]] = {}
 
     # ──────────────────────────────────────────────────────────
     # 核心操作
@@ -131,6 +131,9 @@ class TrackManager:
             if 0 <= idx < len(self._tracks):
                 self._tracks[idx].mark_missed()
 
+    def _birth_key(self, det: Detection) -> tuple:
+        return (det.class_id, round(det.cx / 30), round(det.cy / 30))
+
     def _has_nearby_recoverable_lost(self, det: Detection) -> bool:
         """附近是否存在短时 Lost 同类轨迹（窗口 4 帧，距离阈值 max(45, 0.65*diag)）"""
         det_diag = math.sqrt(det.w * det.w + det.h * det.h)
@@ -156,40 +159,67 @@ class TrackManager:
         frame_id: int,
     ) -> None:
         """
-        为未匹配的检测框创建新轨迹。
-
-        两帧延迟出生保护：
-          - 低于 min_create_score 跳过
-          - 附近有短时 Lost 同类轨迹时，累计计数；连续 2 帧仍未恢复才允许创建
-          - 无附近 Lost 时直接创建
+        三段式出生逻辑：
+          - score < min_create_score：丢弃
+          - score >= 0.78：立即出生
+          - 其余：连续两帧确认后出生；附近有 Lost 时额外要求 best_score >= 0.66
         """
         seen_keys: set = set()
 
         for idx in unmatched_det_indices:
             det = detections[idx]
+
+            # 第一段：低置信丢弃
             if det.score < self.min_create_score:
+                key = self._birth_key(det)
+                self._pending_births.pop(key, None)
                 continue
 
-            key = (det.class_id, round(det.cx / 30), round(det.cy / 30))
+            # 第二段：高置信立即出生
+            if det.score >= 0.78:
+                key = self._birth_key(det)
+                self._pending_births.pop(key, None)
+                self._create_track(det, frame_id)
+                continue
+
+            # 第三段：中等置信两帧确认
+            key = self._birth_key(det)
             seen_keys.add(key)
 
-            if self._has_nearby_recoverable_lost(det) and det.score < 0.75:
-                count = self._pending_births.get(key, 0) + 1
-                self._pending_births[key] = count
-                if count < 2:
-                    logger.debug(
-                        f"[延迟出生] key={key} count={count} 附近有 Lost 轨迹，等待恢复"
-                    )
-                    continue
-                del self._pending_births[key]
-            else:
-                self._pending_births.pop(key, None)
+            entry = self._pending_births.get(key)
+            if entry is None:
+                self._pending_births[key] = {
+                    "count": 1,
+                    "last_frame": float(frame_id),
+                    "best_score": det.score,
+                }
+                continue
 
+            # 更新 pending
+            if frame_id - entry["last_frame"] <= 1:
+                entry["count"] += 1
+            else:
+                entry["count"] = 1
+            entry["last_frame"] = float(frame_id)
+            entry["best_score"] = max(entry["best_score"], det.score)
+
+            if entry["count"] < 2:
+                continue
+
+            # 附近有 Lost 时额外要求 best_score >= 0.66
+            if self._has_nearby_recoverable_lost(det) and entry["best_score"] < 0.66:
+                logger.debug(
+                    f"[延迟出生] key={key} nearby_lost=True best_score={entry['best_score']:.2f} 继续等待"
+                )
+                continue
+
+            del self._pending_births[key]
             self._create_track(det, frame_id)
 
-        # 清理本帧未出现的 pending key，防止无限增长
-        stale_keys = [k for k in self._pending_births if k not in seen_keys]
-        for k in stale_keys:
+        # 清理过期 pending（超过 2 帧未出现）
+        stale = [k for k, v in self._pending_births.items()
+                 if frame_id - v["last_frame"] > 2]
+        for k in stale:
             del self._pending_births[k]
 
     def cleanup(self) -> None:
