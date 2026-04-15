@@ -9,6 +9,12 @@ association:
   # 代价融合
   cost_iou_weight: 0.5
   cost_mahal_weight: 0.5
+  center_norm: 200.0            # 中心距离归一化因子（像素）
+
+  # Stage A2：Lost 轨迹专项恢复通道（车辆关键）
+  # 跳过 Mahal 硬门控，只用 IoU + 中心距离，给 Lost 轨迹第二次匹配机会
+  lost_recovery_stage: true
+  cost_threshold_a2: 0.9
 
   # 第二阶段：低分检测框关联（仅IoU）
   second_stage_match: true

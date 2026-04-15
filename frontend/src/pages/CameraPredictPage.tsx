@@ -266,7 +266,7 @@ export default function CameraPredictPage() {
           摄像头实时预测
         </h1>
         <p className="text-slate-500 mt-1 text-sm">
-          调用浏览器摄像头，实时推理并在画面上叠加检测结果
+          实时调用摄像头，对画面中车辆进行跟踪与短时轨迹预测（默认：车辆稳定模式）
         </p>
       </div>
 
@@ -350,9 +350,9 @@ export default function CameraPredictPage() {
           {/* 实时统计 */}
           {cameraActive && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatCard icon={Target}   label="活跃轨迹" value={stats.trackCount}    color="bg-blue-500/15 text-blue-400" />
+              <StatCard icon={Target}   label="车辆轨迹" value={stats.trackCount}    color="bg-blue-500/15 text-blue-400" />
               <StatCard icon={Activity} label="已确认"   value={stats.confirmedCount} color="bg-emerald-500/15 text-emerald-400" />
-              <StatCard icon={Eye}      label="检测数"   value={stats.detectionCount} color="bg-cyan-500/15 text-cyan-400" />
+              <StatCard icon={Eye}      label="车辆检测数" value={stats.detectionCount} color="bg-cyan-500/15 text-cyan-400" />
               <StatCard icon={Zap}      label="推理延迟" value={`${stats.inferenceMs}ms`} color="bg-amber-500/15 text-amber-400" />
             </div>
           )}
@@ -510,7 +510,8 @@ export default function CameraPredictPage() {
             <div className="flex items-start gap-2 text-slate-500 text-xs leading-relaxed">
               <Wifi className="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-600" />
               <div className="space-y-1">
-                <p>每帧捕获后以 JPEG 格式发送后端推理，推理结果叠加绘制在画面上。</p>
+                <p>每帧捕获后以 JPEG 格式发送后端推理，车辆轨迹与预测路径叠加绘制在画面上。</p>
+                <p>默认使用车辆稳定模式（COCO 类别 2/3/5/7），可切换行人模式。</p>
                 <p>若后端负载较高，建议降低推理帧率至 2~3 fps。</p>
                 <p className="text-slate-600">摄像头数据仅在本地处理，不上传至任何服务器。</p>
               </div>

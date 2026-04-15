@@ -46,6 +46,9 @@ class MultiObjectTracker:
         iou_threshold_b: float = 0.4,
         iou_threshold_c: float = 0.3,
         second_stage_match: bool = True,
+        # ── Stage A2：Lost 轨迹专项恢复（车辆场景关键参数）─────
+        lost_recovery_stage: bool = True,
+        cost_threshold_a2: float = 0.9,
         # ── 新轨迹创建门限 ─────────────────────────────────────
         min_create_score: float = 0.0,
         anchor_mode: str = "center",
@@ -86,6 +89,8 @@ class MultiObjectTracker:
             center_weight=center_weight,
             cost_threshold_a=cost_threshold_a,
             center_norm=center_norm,
+            lost_recovery_stage=lost_recovery_stage,
+            cost_threshold_a2=cost_threshold_a2,
             iou_threshold_b=iou_threshold_b,
             iou_threshold_c=iou_threshold_c,
             second_stage=second_stage_match,
@@ -208,6 +213,8 @@ class MultiObjectTracker:
             iou_threshold_c=_get(tracker_cfg, "iou_threshold_c",
                                   _get(tracker_cfg, "iou_threshold", 0.3)),
             second_stage_match=_get(tracker_cfg, "second_stage_match", True),
+            lost_recovery_stage=_get(tracker_cfg, "lost_recovery_stage", True),
+            cost_threshold_a2=_get(tracker_cfg, "cost_threshold_a2", 0.9),
             min_create_score=_get(tracker_cfg, "min_create_score", 0.0),
             anchor_mode=_get(tracker_cfg, "anchor_mode", "center"),
             std_acc=_g(pn, "std_acc", 2.0),

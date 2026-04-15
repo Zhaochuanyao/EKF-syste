@@ -221,7 +221,7 @@ export default function UploadPredictPage() {
           视频上传预测
         </h1>
         <p className="text-slate-500 mt-1 text-sm">
-          上传本地视频文件，后端处理后生成带标注的结果视频
+          上传交通监控视频，批量检测并跟踪车辆，生成带轨迹标注的结果视频（默认：车辆稳定模式）
         </p>
       </div>
 
@@ -450,8 +450,8 @@ export default function UploadPredictPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   {[
                     { icon: Film, label: '处理帧数', value: state.result.frames_processed.toLocaleString() },
-                    { icon: Target, label: '检测次数', value: state.result.total_detections.toLocaleString() },
-                    { icon: Activity, label: '唯一轨迹', value: state.result.unique_tracks.toString() },
+                    { icon: Target, label: '车辆检测次数', value: state.result.total_detections.toLocaleString() },
+                    { icon: Activity, label: '车辆轨迹数', value: state.result.unique_tracks.toString() },
                     { icon: Clock, label: '视频时长', value: formatDuration(state.result.duration_seconds) },
                   ].map(({ icon: Icon, label, value }) => (
                     <div key={label} className="bg-slate-800/60 rounded-lg p-3 text-center">

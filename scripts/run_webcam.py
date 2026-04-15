@@ -1,6 +1,6 @@
 """
-实时摄像头跟踪演示
-使用本地摄像头进行实时目标检测与轨迹预测
+实时摄像头跟踪演示（默认：车辆场景）
+使用本地摄像头进行实时车辆检测、多目标跟踪与轨迹预测
 """
 
 import sys
@@ -24,10 +24,13 @@ from src.ekf_mot.tracking.track import Track
 
 logger = setup_logger(level="INFO")
 
+_VEHICLE_CONFIG = "configs/exp/demo_vehicle_accuracy.yaml"
+_VEHICLE_CLASSES = [2, 3, 5, 7]   # car, motorcycle, bus, truck (COCO)
+
 
 def run_webcam_tracking(
     camera_id: int = 0,
-    config_path: str = None,
+    config_path: str = _VEHICLE_CONFIG,
     show_fps: bool = True,
     save_video: bool = False,
     output_path: str = None,
@@ -43,20 +46,24 @@ def run_webcam_tracking(
         output_path: 输出视频路径
     """
     logger.info("=" * 60)
-    logger.info("EKF 实时摄像头跟踪系统")
+    logger.info("EKF 实时摄像头跟踪系统 — 车辆模式")
+    logger.info("  目标类别: 轿车(2) / 摩托车(3) / 巴士(5) / 卡车(7)")
     logger.info("=" * 60)
 
     # ── 加载配置 ──────────────────────────────────────────────
     if config_path and Path(config_path).exists():
         from src.ekf_mot.core.config import load_config
         cfg_dict = load_config(config_path)
+        logger.info(f"配置文件: {config_path}")
     else:
+        # 回退到默认配置，并手动注入车辆优化参数
+        logger.warning(f"配置文件不存在 ({config_path})，使用内置车辆默认参数")
         cfg_dict = get_default_config()
-        # 摄像头优化配置
         cfg_dict['detector']['imgsz'] = 640
         cfg_dict['detector']['conf'] = 0.4
+        cfg_dict['detector']['classes'] = _VEHICLE_CLASSES
         cfg_dict['tracker']['n_init'] = 2
-        cfg_dict['tracker']['max_age'] = 15
+        cfg_dict['tracker']['max_age'] = 30
         cfg_dict['visualization']['track_history_len'] = 20
 
     cfg = Config.from_dict(cfg_dict)
@@ -255,7 +262,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="实时摄像头跟踪")
     parser.add_argument("--camera", type=int, default=0, help="摄像头ID（0=默认）")
-    parser.add_argument("--config", type=str, default=None, help="配置文件路径")
+    parser.add_argument(
+        "--config", type=str, default=_VEHICLE_CONFIG,
+        help=f"配置文件路径（默认: 车辆稳定模式 {_VEHICLE_CONFIG}）",
+    )
     parser.add_argument("--no-fps", action="store_true", help="不显示FPS")
     parser.add_argument("--save", action="store_true", help="保存输出视频")
     parser.add_argument("--output", type=str, default=None, help="输出视频路径（默认：outputs/webcam_<时间戳>.mp4）")

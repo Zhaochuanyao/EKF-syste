@@ -5,7 +5,8 @@
       "Bash(python -c \"import imageio_ffmpeg; print\\('imageio-ffmpeg:', imageio_ffmpeg.get_ffmpeg_exe\\(\\)\\)\")",
       "Bash(\"C:\\\\Users\\\\zcy\\\\.ipython\\\\python.exe\" -m pytest d:/pycharm/EKFsystem/tests/ -v --tb=short)",
       "Bash(\"C:\\\\Users\\\\zcy\\\\.ipython\\\\python.exe\" -m pytest d:/pycharm/EKFsystem/tests/ --tb=short -q)",
-      "Bash(C:\\\\Users\\\\zcy\\\\.ipython\\\\python.exe scripts/compare_baseline_vs_ekf.py --video assets/samples/demo.mp4 --max-frames 300)"
+      "Bash(C:\\\\Users\\\\zcy\\\\.ipython\\\\python.exe scripts/compare_baseline_vs_ekf.py --video assets/samples/demo.mp4 --max-frames 300)",
+      "Bash(\"/c/Users/zcy/.ipython/python.exe\" scripts/compare_baseline_vs_ekf.py --video assets/samples/demo.mp4 --max-frames 300)"
     ]
   }
 }

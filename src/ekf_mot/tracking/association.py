@@ -18,7 +18,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from .track import Track
-from .cost import iou_cost_matrix, fused_cost_matrix
+from .cost import iou_cost_matrix, fused_cost_matrix, center_distance_cost_matrix
 from ..core.types import Detection
 
 
@@ -75,6 +75,10 @@ def associate(
     center_weight: float = 0.2,
     cost_threshold_a: float = 0.8,
     center_norm: float = 200.0,
+    # ── Stage A2 参数：未匹配 Lost 轨迹 × 未匹配高置信度检测框 ─
+    # （车辆专项恢复通道：跳过 Mahal 硬门控，用 IoU+中心距离）
+    lost_recovery_stage: bool = True,
+    cost_threshold_a2: float = 0.9,
     # ── Stage B 参数：未匹配轨迹 × 低置信度检测框 ─────────────
     iou_threshold_b: float = 0.4,
     # ── Stage C 参数：Tentative × 未匹配高置信度检测框 ─────────
@@ -161,6 +165,42 @@ def associate(
 
         unmatched_a_tracks = {a_track_list[i] for i in unmatched_a_t_local}
         unmatched_a_high_dets = {a_det_list[i] for i in unmatched_a_d_local}
+
+    # ══════════════════════════════════════════════════════════
+    # Stage A2: 未匹配的 Lost 轨迹 × 未匹配高置信度检测框
+    #           车辆专项 Lost 恢复通道：
+    #           ① 跳过 Mahal 硬门控（EKF 在长时丢失后位置可能漂移）
+    #           ② 使用 IoU + 中心距离融合代价（更宽松的空间约束）
+    #           ③ 解决车辆遮挡后 Mahal 门控过严导致断轨的问题
+    # ══════════════════════════════════════════════════════════
+    if lost_recovery_stage:
+        a2_track_list = sorted({i for i in unmatched_a_tracks if tracks[i].is_lost})
+        a2_det_list = sorted(unmatched_a_high_dets)
+
+        if a2_track_list and a2_det_list:
+            a2_tracks = [tracks[i] for i in a2_track_list]
+            a2_dets   = [detections[i] for i in a2_det_list]
+
+            iou_c    = iou_cost_matrix(a2_tracks, a2_dets)
+            center_c = center_distance_cost_matrix(a2_tracks, a2_dets, center_norm)
+            cost_a2  = 0.6 * iou_c + 0.4 * np.clip(center_c, 0, 2.0)
+
+            # 类别一致性约束（保留，但不做尺寸比约束，给 Lost 更多弹性）
+            for i, t in enumerate(a2_tracks):
+                for j, d in enumerate(a2_dets):
+                    if t.class_id != d.class_id:
+                        cost_a2[i, j] = np.inf
+
+            matches_a2_local, _, _ = hungarian_match(cost_a2, threshold=cost_threshold_a2)
+
+            for r_l, c_l in matches_a2_local:
+                r = a2_track_list[r_l]
+                c = a2_det_list[c_l]
+                all_matches.append((r, c))
+                matched_tracks.add(r)
+                matched_dets.add(c)
+                unmatched_a_tracks.discard(r)      # 从 Stage B 候选中移除
+                unmatched_a_high_dets.discard(c)   # 从 Stage C 候选中移除
 
     # ══════════════════════════════════════════════════════════
     # Stage B: 未匹配的 (Confirmed + Lost) × 低置信度检测框

@@ -9,7 +9,7 @@ import numpy as np
 from .track_state import TrackState
 from ..filtering.ekf import ExtendedKalmanFilter
 from ..core.types import Detection, Measurement, TrackStateVector
-from ..core.constants import IDX_CX, IDX_CY, IDX_W, IDX_H
+from ..core.constants import IDX_CX, IDX_CY, IDX_W, IDX_H, IDX_OMEGA
 
 
 class Track:
@@ -145,6 +145,9 @@ class Track:
             frame_id: 当前帧ID
             dt: 当前帧时间步长（用于 bootstrap 速度估计，None 则跳过 bootstrap）
         """
+        # 记录恢复前的状态（Lost→Confirmed 需特殊处理）
+        was_lost = self.is_lost
+
         # 记录本次实际观测中心（EKF 更新前）
         obs_cx, obs_cy = detection.cx, detection.cy
 
@@ -162,15 +165,27 @@ class Track:
         cy = float(self.ekf.x[IDX_CY])
         self.history.append((cx, cy))
 
-        # ── 运动学 Bootstrap ─────────────────────────────────
-        # 在 EKF 更新之后，用实际观测中心估计运动方向/速度
-        if dt is not None and dt > 0 and len(self._obs_centers) >= 1:
-            self._bootstrap_kinematics(obs_cx, obs_cy, dt)
+        # ── Lost 轨迹恢复处理 ────────────────────────────────
+        if was_lost:
+            # 重置 bootstrap 缓存：避免长时间隙导致错误的速度/航向估计
+            # （上次观测到现在可能经过了多帧，直接 bootstrap 会高估速度）
+            self._obs_centers = [(obs_cx, obs_cy)]
+            self._obs_headings = []
+            # 抑制 CTRV 在 Lost 期间积累的角速度：
+            # 车辆重新出现时，omega 可能已经偏离真实值，归零更稳健
+            current_omega = float(self.ekf.x[IDX_OMEGA])
+            if abs(current_omega) > 0.3:  # 超过 0.3 rad/s 认为需要重置
+                self.ekf.set_kinematics(omega=current_omega * 0.2)
+        else:
+            # ── 正常运动学 Bootstrap ─────────────────────────
+            # 在 EKF 更新之后，用实际观测中心估计运动方向/速度
+            if dt is not None and dt > 0 and len(self._obs_centers) >= 1:
+                self._bootstrap_kinematics(obs_cx, obs_cy, dt)
 
-        # 保存本次观测（限制缓存大小为 4）
-        self._obs_centers.append((obs_cx, obs_cy))
-        if len(self._obs_centers) > 4:
-            self._obs_centers.pop(0)
+            # 保存本次观测（限制缓存大小为 4）
+            self._obs_centers.append((obs_cx, obs_cy))
+            if len(self._obs_centers) > 4:
+                self._obs_centers.pop(0)
 
         # ── 更新稳定性分数 ────────────────────────────────────
         self._update_stability()

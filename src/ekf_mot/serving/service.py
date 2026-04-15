@@ -13,10 +13,35 @@ import numpy as np
 from ..detection import build_detector
 from ..tracking.multi_object_tracker import MultiObjectTracker
 from ..prediction.trajectory_predictor import TrajectoryPredictor
-from ..core.config import get_default_config, Config
+from ..core.config import get_default_config, load_config, Config
 from ..utils.logger import get_logger
 
 logger = get_logger("ekf_mot.serving")
+
+# 支持的配置名称 → YAML 文件路径（相对于项目根目录）
+_CONFIG_MAP = {
+    "demo_vehicle_accuracy": "configs/exp/demo_vehicle_accuracy.yaml",
+    "demo_person_accuracy":  "configs/exp/demo_person_accuracy.yaml",
+    "base":                  "configs/base.yaml",
+}
+
+
+def _load_config_by_name(config_name: str) -> Config:
+    """
+    按配置名加载 YAML 配置，找不到则回退到默认配置。
+    默认配置名 'demo_vehicle_accuracy' 对应车辆场景优化参数。
+    """
+    yaml_path = _CONFIG_MAP.get(config_name)
+    if yaml_path and Path(yaml_path).exists():
+        try:
+            cfg_dict = load_config(yaml_path)
+            logger.info(f"加载配置: {config_name} ({yaml_path})")
+            return Config.from_dict(cfg_dict)
+        except Exception as e:
+            logger.warning(f"配置文件加载失败 ({yaml_path}): {e}，回退到默认配置")
+    else:
+        logger.warning(f"未找到配置 '{config_name}'，回退到默认配置")
+    return Config.from_dict(get_default_config())
 
 
 def _id_to_color(track_id: int) -> tuple:
@@ -41,17 +66,25 @@ class TrackingService:
     跟踪服务，封装检测器 + 跟踪器 + 预测器的完整流程。
     """
 
-    def __init__(self, config: Optional[Config] = None) -> None:
-        cfg_dict = get_default_config()
-        self.cfg = Config.from_dict(cfg_dict) if config is None else config
+    def __init__(
+        self,
+        config: Optional[Config] = None,
+        config_name: str = "demo_vehicle_accuracy",
+    ) -> None:
+        # 优先使用传入的 config 对象；否则按名称加载 YAML（默认车辆场景）
+        self.config_name = config_name
+        self.cfg = config if config is not None else _load_config_by_name(config_name)
 
         det_cfg = self.cfg.detector
+        # 透传 classes 参数：车辆配置中 classes=[2,3,5,7]，实现车辆专项检测过滤
+        det_classes = getattr(det_cfg, "classes", None)
         self.detector = build_detector(
             backend=getattr(det_cfg, "backend", "ultralytics"),
             weights=getattr(det_cfg, "weights", "weights/yolov8n.pt"),
             conf=getattr(det_cfg, "conf", 0.35),
             iou=getattr(det_cfg, "iou", 0.5),
             imgsz=getattr(det_cfg, "imgsz", 640),
+            classes=det_classes,  # 车辆配置: [2,3,5,7]；默认配置: None（所有类别）
             warmup=True,
         )
 

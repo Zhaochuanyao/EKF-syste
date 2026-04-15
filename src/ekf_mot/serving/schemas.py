@@ -25,6 +25,7 @@ class FramePredictRequest(BaseModel):
     """单帧预测请求（base64 编码图像）"""
     image_base64: str
     frame_id: int = 0
+    config_name: str = "demo_vehicle_accuracy"   # 跟踪配置名（车辆为默认）
 
 
 class FramePredictResponse(BaseModel):

@@ -20,29 +20,29 @@ import { useAppStore } from '../store/appStore';
 const FEATURES = [
   {
     icon: Eye,
-    title: '目标检测',
-    desc: 'YOLOv8 实时检测，支持 80 类 COCO 目标，高精度低延迟',
+    title: '车辆目标检测',
+    desc: 'YOLOv8 实时检测，专项过滤车辆类别（轿车/卡车/巴士/摩托），高精度低延迟',
     color: 'text-blue-400',
     bg: 'bg-blue-400/10',
   },
   {
     icon: Activity,
-    title: '多目标跟踪',
-    desc: '三阶段匈牙利关联算法，支持遮挡恢复与长程跟踪',
+    title: '车辆多目标跟踪',
+    desc: '四阶段匈牙利关联 + 遮挡恢复机制，针对道路场景优化轨迹碎片化抑制',
     color: 'text-cyan-400',
     bg: 'bg-cyan-400/10',
   },
   {
     icon: TrendingUp,
-    title: 'EKF 轨迹预测',
-    desc: 'CTRV 运动模型 + 扩展卡尔曼滤波，预测未来 1/5/10 帧位置',
+    title: '车辆轨迹预测',
+    desc: 'CTRV 运动模型 + 扩展卡尔曼滤波，预测车辆未来 1/5/10 帧行驶轨迹',
     color: 'text-violet-400',
     bg: 'bg-violet-400/10',
   },
   {
     icon: BarChart3,
-    title: '结果可视化',
-    desc: '实时叠加检测框、轨迹线、预测点与协方差椭圆',
+    title: '交通场景可视化',
+    desc: '实时叠加车辆检测框、跟踪 ID、历史轨迹线与短时预测路径',
     color: 'text-emerald-400',
     bg: 'bg-emerald-400/10',
   },
@@ -97,13 +97,13 @@ export default function DashboardPage() {
 
         <div>
           <h1 className="text-4xl sm:text-5xl font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-300 bg-clip-text text-transparent leading-tight pb-1">
-            EKF 多目标跟踪系统
+            EKF 车辆多目标跟踪系统
           </h1>
           <p className="mt-4 text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto">
-            基于扩展卡尔曼滤波的目标检测与运动轨迹预测平台
+            面向交通监控的车辆多目标跟踪与短时轨迹预测平台
             <br />
             <span className="text-slate-500 text-base">
-              毕业设计演示系统 · CTRV 模型 · 三阶段关联 · 预测质量门控
+              毕业设计演示系统 · CTRV 运动模型 · 四阶段关联 · 预测质量门控
             </span>
           </p>
         </div>
@@ -122,10 +122,10 @@ export default function DashboardPage() {
             </div>
             <h3 className="text-white font-semibold mb-1.5">视频上传预测</h3>
             <p className="text-slate-400 text-sm leading-relaxed">
-              上传本地视频文件，离线批量处理，生成带标注的输出视频并下载
+              上传交通监控或行车记录视频，批量跟踪车辆，生成带标注的结果视频并下载
             </p>
             <div className="mt-4 flex items-center gap-1.5 text-blue-400 text-xs font-medium">
-              <span>支持 MP4 / AVI / MOV</span>
+              <span>支持 MP4 / AVI / MOV · 车辆优先</span>
             </div>
           </Link>
 
@@ -141,10 +141,10 @@ export default function DashboardPage() {
             </div>
             <h3 className="text-white font-semibold mb-1.5">摄像头实时预测</h3>
             <p className="text-slate-400 text-sm leading-relaxed">
-              调用浏览器摄像头，实时推理，画面上叠加检测框、轨迹与预测点
+              调用摄像头进行实时车辆跟踪演示，画面上叠加检测框、轨迹与行驶预测点
             </p>
             <div className="mt-4 flex items-center gap-1.5 text-cyan-400 text-xs font-medium">
-              <span>需要摄像头权限</span>
+              <span>需要摄像头权限 · 车辆优先</span>
             </div>
           </Link>
         </div>
@@ -152,7 +152,7 @@ export default function DashboardPage() {
 
       {/* 系统能力 */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-200 mb-6 text-center">系统能力</h2>
+        <h2 className="text-xl font-semibold text-slate-200 mb-6 text-center">系统核心能力（车辆场景优化）</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {FEATURES.map(({ icon: Icon, title, desc, color, bg }) => (
             <div key={title} className="card p-5 space-y-3">

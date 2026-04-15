@@ -109,15 +109,17 @@ def run_baseline(
     video_path: str,
     max_frames: Optional[int],
     future_steps: List[int],
+    vehicle_classes: Optional[List[int]] = None,
 ) -> Dict:
     """运行 Baseline 跟踪器，返回统计结果"""
     import cv2
     from src.ekf_mot.prediction.baseline import BaselineTracker
 
+    # Baseline 参数与车辆场景对齐（min_hits=2 与 EKF n_init=2 一致）
     BaselineTracker_inst = BaselineTracker(
         iou_threshold=0.3,
         max_age=5,
-        min_hits=3,
+        min_hits=2,
         future_steps=future_steps,
     )
 
@@ -140,6 +142,9 @@ def run_baseline(
 
         t0 = time.perf_counter()
         dets = detector.predict(frame)
+        # 按车辆类别过滤检测（与 EKF 保持一致，公平对比）
+        if vehicle_classes:
+            dets = [d for d in dets if d.class_id in vehicle_classes]
         tracks = BaselineTracker_inst.step(dets, frame_id)
         elapsed = (time.perf_counter() - t0) * 1000
         elapsed_times.append(elapsed)
@@ -262,41 +267,74 @@ def run_ekf(
 def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
     """生成对比摘要，含相对改善比例"""
 
-    def _improvement(base_val: float, ekf_val: float, lower_is_better: bool) -> str:
-        """计算改善百分比，lower_is_better=True 时 ekf_val 小意味着改善"""
+    def _pct_change(base_val: float, ekf_val: float, lower_is_better: bool) -> float:
+        """
+        计算相对变化百分比（正 = EKF 更好，负 = EKF 更差）。
+        lower_is_better=True: base_val > ekf_val → 正（EKF 变小 = 改善）
+        lower_is_better=False: ekf_val > base_val → 正（EKF 变大 = 改善）
+        """
+        if base_val == 0:
+            return 0.0
+        delta = base_val - ekf_val if lower_is_better else ekf_val - base_val
+        return delta / abs(base_val) * 100
+
+    def _format_change(pct: float) -> str:
+        """将百分比格式化为带语义词的字符串，避免'改善 -87%'的歧义"""
+        if abs(pct) < 1.0:
+            return f"持平（{pct:+.1f}%）"
+        elif pct > 0:
+            return f"改善 +{pct:.1f}%"
+        else:
+            return f"退步 {pct:.1f}%"
+
+    def _improvement_str(base_val: float, ekf_val: float, lower_is_better: bool) -> str:
+        """向 JSON 写入用的改善字符串"""
         if base_val == 0:
             return "N/A"
-        delta = base_val - ekf_val if lower_is_better else ekf_val - base_val
-        pct = delta / abs(base_val) * 100
-        sign = "+" if pct >= 0 else ""
-        return f"{sign}{pct:.1f}%"
+        pct = _pct_change(base_val, ekf_val, lower_is_better)
+        return f"{pct:+.1f}%"
 
-    jitter_imprv = _improvement(baseline["avg_jitter"], ekf["avg_jitter"], lower_is_better=True)
-    smooth_imprv = _improvement(baseline["avg_smoothness"], ekf["avg_smoothness"], lower_is_better=True)
-    len_imprv = _improvement(baseline["avg_track_length"], ekf["avg_track_length"], lower_is_better=False)
+    jitter_pct  = _pct_change(baseline["avg_jitter"],      ekf["avg_jitter"],      True)
+    smooth_pct  = _pct_change(baseline["avg_smoothness"],  ekf["avg_smoothness"],  True)
+    len_pct     = _pct_change(baseline["avg_track_length"], ekf["avg_track_length"], False)
 
-    # 动态结论：根据实际数值判断各维度优劣
-    def _verdict(base_val: float, ekf_val: float, lower_is_better: bool, name: str) -> str:
+    jitter_imprv = _improvement_str(baseline["avg_jitter"],      ekf["avg_jitter"],      True)
+    smooth_imprv = _improvement_str(baseline["avg_smoothness"],  ekf["avg_smoothness"],  True)
+    len_imprv    = _improvement_str(baseline["avg_track_length"], ekf["avg_track_length"], False)
+
+    # 动态结论：根据实际数值判断各维度优劣（语义明确，不出现"改善 -87%"）
+    def _verdict(base_val: float, ekf_val: float, lower_is_better: bool, name: str,
+                 pct: float, fmt: str) -> str:
         if base_val == 0:
-            return f"{name} 无法比较（Baseline 为 0）"
+            return f"{name}：无法比较（Baseline 为 0）"
         if lower_is_better:
-            return f"{name}：EKF {'更优' if ekf_val < base_val else '更差'}（{ekf_val:.3f} vs {base_val:.3f}）"
+            better = ekf_val < base_val
+            return (f"{name}：EKF {'更优' if better else '更差'}"
+                    f"（EKF={ekf_val:.3f} vs Base={base_val:.3f}），{fmt}")
         else:
-            return f"{name}：EKF {'更优' if ekf_val > base_val else '更差'}（{ekf_val:.2f} vs {base_val:.2f}）"
+            better = ekf_val > base_val
+            return (f"{name}：EKF {'更优' if better else '更差'}"
+                    f"（EKF={ekf_val:.2f} vs Base={base_val:.2f}），{fmt}")
 
-    ekf_tracks = ekf["num_tracks"]
+    ekf_tracks  = ekf["num_tracks"]
     base_tracks = baseline["num_tracks"]
-    track_count_note = (
-        f"轨迹数量：EKF {ekf_tracks} vs Baseline {base_tracks}"
-        + ("（EKF 碎片化更少）" if ekf_tracks <= base_tracks else "（EKF 碎片化更多，建议调整参数）")
-    )
+    # 轨迹数量：过多意味着碎片化严重；但也要考虑帧数差异
+    # 此处简单比较总量：EKF <= Baseline 才算碎片化更少
+    if ekf_tracks <= base_tracks:
+        track_note = f"轨迹数量：EKF {ekf_tracks} vs Baseline {base_tracks}，EKF 碎片化更少"
+    else:
+        diff = ekf_tracks - base_tracks
+        track_note = (f"轨迹数量：EKF {ekf_tracks} vs Baseline {base_tracks}，"
+                      f"EKF 多 {diff} 条——建议提高 min_create_score 或延长 max_age")
 
     conclusion_lines = [
         "EKF 系统相比 Baseline：",
-        f"  {_verdict(baseline['avg_jitter'], ekf['avg_jitter'], True, '轨迹抖动')}，改善 {jitter_imprv}",
-        f"  {_verdict(baseline['avg_smoothness'], ekf['avg_smoothness'], True, '轨迹平滑度')}，改善 {smooth_imprv}",
-        f"  {_verdict(baseline['avg_track_length'], ekf['avg_track_length'], False, '平均轨迹长度')}，变化 {len_imprv}",
-        f"  {track_count_note}",
+        f"  {_verdict(baseline['avg_jitter'],      ekf['avg_jitter'],      True,  '轨迹抖动',   jitter_pct, _format_change(jitter_pct))}",
+        f"  {_verdict(baseline['avg_smoothness'],  ekf['avg_smoothness'],  True,  '轨迹平滑度', smooth_pct, _format_change(smooth_pct))}",
+        f"  {_verdict(baseline['avg_track_length'],ekf['avg_track_length'],False, '平均轨迹长度',len_pct,   _format_change(len_pct))}",
+        f"  {track_note}",
+        "",
+        "指标说明：抖动/平滑度越小越好；轨迹长度越大越好；轨迹总数越少碎片化越低。",
     ]
 
     return {
@@ -307,24 +345,24 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
                 "baseline": baseline["avg_jitter"],
                 "ekf": ekf["avg_jitter"],
                 "improvement": jitter_imprv,
-                "note": "帧间位移标准差（越小越稳定）",
+                "note": "帧间位移标准差（越小越稳定，lower is better）",
             },
             "avg_smoothness": {
                 "baseline": baseline["avg_smoothness"],
                 "ekf": ekf["avg_smoothness"],
                 "improvement": smooth_imprv,
-                "note": "帧间加速度均值（越小越平滑）",
+                "note": "帧间加速度均值（越小越平滑，lower is better）",
             },
             "num_tracks": {
                 "baseline": base_tracks,
                 "ekf": ekf_tracks,
-                "note": "总轨迹数量（越少碎片化越低）",
+                "note": "总轨迹数量（越少碎片化越低，lower is better）",
             },
             "avg_track_length": {
                 "baseline": baseline["avg_track_length"],
                 "ekf": ekf["avg_track_length"],
                 "improvement": len_imprv,
-                "note": "平均轨迹持续帧数（越长连续性越好）",
+                "note": "平均轨迹持续帧数（越长连续性越好，higher is better）",
             },
         },
         "conclusion": "\n".join(conclusion_lines),
@@ -352,6 +390,13 @@ def main():
         type=int,
         default=[1, 5, 10],
         help="预测步数列表（default: 1 5 10）",
+    )
+    parser.add_argument(
+        "--vehicle-classes",
+        nargs="+",
+        type=int,
+        default=[2, 3, 5, 7],
+        help="车辆 COCO 类别 ID（default: 2=car 3=motorcycle 5=bus 7=truck）",
     )
     args = parser.parse_args()
 
@@ -385,11 +430,13 @@ def main():
     logger.info(f"\n{'='*50}")
     logger.info("运行 Baseline 跟踪器（纯 IoU 关联，无 EKF）...")
     logger.info(f"{'='*50}")
+    logger.info(f"  车辆类别过滤：classes={args.vehicle_classes} (car=2, motorcycle=3, bus=5, truck=7)")
     baseline_result = run_baseline(
         detector=detector,
         video_path=str(video_path),
         max_frames=args.max_frames,
         future_steps=args.future_steps,
+        vehicle_classes=args.vehicle_classes,
     )
 
     # ── 运行 EKF ──────────────────────────────────────────────

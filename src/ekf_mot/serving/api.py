@@ -7,7 +7,7 @@ import tempfile
 import threading
 import uuid
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,16 +48,26 @@ OUTPUTS_DIR.mkdir(exist_ok=True)
 # ── 异步任务注册表 ─────────────────────────────────────────────
 _tasks: Dict[str, Dict] = {}
 
-# ── 全局服务实例（懒加载）─────────────────────────────────────
-_service: Optional[TrackingService] = None
+# ── 服务实例缓存（按 config_name 懒加载，默认 vehicle）────────
+# 车辆场景为首选，首次调用时初始化；按需为其他配置创建独立实例
+_services: Dict[str, TrackingService] = {}
+_service_lock = threading.Lock()
+
+DEFAULT_CONFIG = "demo_vehicle_accuracy"  # 全局默认：车辆场景
 
 
-def get_service() -> TrackingService:
-    global _service
-    if _service is None:
-        logger.info("初始化跟踪服务...")
-        _service = TrackingService()
-    return _service
+def get_service(config_name: str = DEFAULT_CONFIG) -> TrackingService:
+    """
+    按配置名获取（或创建）服务实例。
+    - 同一 config_name 只初始化一次（含检测器权重加载）
+    - 线程安全（双重检查锁）
+    """
+    if config_name not in _services:
+        with _service_lock:
+            if config_name not in _services:
+                logger.info(f"初始化跟踪服务 (config={config_name})...")
+                _services[config_name] = TrackingService(config_name=config_name)
+    return _services[config_name]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -78,9 +88,10 @@ async def health_check():
 async def predict_frame(request: FramePredictRequest):
     """
     单帧预测接口。
-    请求体: { "image_base64": "<base64图像>", "frame_id": 0 }
+    请求体: { "image_base64": "<base64图像>", "frame_id": 0, "config_name": "demo_vehicle_accuracy" }
+    config_name 默认为 demo_vehicle_accuracy（车辆场景）。
     """
-    service = get_service()
+    service = get_service(request.config_name)  # 按前端选定的配置名获取服务
     try:
         frame = service.decode_base64_image(request.image_base64)
         if frame is None:
@@ -154,7 +165,8 @@ async def predict_video_start(
 
     def _run_task():
         try:
-            svc = get_service()
+            # 使用与前端选定配置对应的服务实例（车辆/行人/通用）
+            svc = get_service(config_name)
             result = svc.process_video_to_file(
                 video_path=tmp_path,
                 task_id=task_id,
@@ -216,12 +228,18 @@ async def get_output_file(filename: str):
 # ══════════════════════════════════════════════════════════════
 
 @app.post("/reset")
-async def reset_tracker():
-    """重置跟踪器状态"""
-    service = get_service()
+async def reset_tracker(
+    config_name: str = Query(default=DEFAULT_CONFIG, description="重置哪个配置的跟踪器"),
+):
+    """
+    重置指定配置的跟踪器状态。
+    - config_name 默认 demo_vehicle_accuracy（车辆场景）
+    - 前端切换模式后调用此接口使新配置生效
+    """
+    service = get_service(config_name)
     service.tracker.reset()
     service._frame_id = 0
-    return {"status": "reset ok"}
+    return {"status": "reset ok", "config_name": config_name}
 
 
 # ══════════════════════════════════════════════════════════════
