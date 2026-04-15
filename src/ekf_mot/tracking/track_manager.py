@@ -88,6 +88,7 @@ class TrackManager:
         )
 
         self._tracks: List[Track] = []
+        self._pending_births: Dict[tuple, int] = {}
 
     # ──────────────────────────────────────────────────────────
     # 核心操作
@@ -131,26 +132,15 @@ class TrackManager:
                 self._tracks[idx].mark_missed()
 
     def _has_nearby_recoverable_lost(self, det: Detection) -> bool:
-        """
-        判断是否存在"短时 Lost 且同类别"的轨迹位于检测框附近。
-
-        若存在，本帧先不新建轨迹，让 Stage A2 在下一帧有机会恢复。
-        避免旧轨迹还未恢复就被新 ID 抢占。
-
-        判定条件（同时满足）：
-          - track.is_lost
-          - track.class_id == det.class_id
-          - track.time_since_update <= 5
-          - 欧氏距离 < max(40.0, 0.6 * diag(det))
-        """
+        """附近是否存在短时 Lost 同类轨迹（放宽窗口至 8 帧，距离阈值 max(60, 0.8*diag)）"""
         det_diag = math.sqrt(det.w * det.w + det.h * det.h)
-        dist_threshold = max(40.0, 0.6 * det_diag)
+        dist_threshold = max(60.0, 0.8 * det_diag)
         for track in self._tracks:
             if not track.is_lost:
                 continue
             if track.class_id != det.class_id:
                 continue
-            if track.time_since_update > 5:
+            if track.time_since_update > 8:
                 continue
             track_cx, track_cy = track.get_center()
             dx = track_cx - det.cx
@@ -168,22 +158,40 @@ class TrackManager:
         """
         为未匹配的检测框创建新轨迹。
 
-        新增"延迟出生"保护：
-          - 低于 min_create_score 的检测框跳过（噪声抑制）
-          - 附近存在短时 Lost 同类轨迹时，本帧暂不新建（防止旧轨迹
-            尚未恢复就被新 ID 抢占，减少轨迹碎片化）
+        两帧延迟出生保护：
+          - 低于 min_create_score 跳过
+          - 附近有短时 Lost 同类轨迹时，累计计数；连续 2 帧仍未恢复才允许创建
+          - 无附近 Lost 时直接创建
         """
+        seen_keys: set = set()
+
         for idx in unmatched_det_indices:
             det = detections[idx]
             if det.score < self.min_create_score:
                 continue
+
+            key = (det.class_id, round(det.cx / 20), round(det.cy / 20))
+            seen_keys.add(key)
+
             if self._has_nearby_recoverable_lost(det):
-                logger.debug(
-                    f"[延迟出生] 检测 score={det.score:.2f} class={det.class_name} "
-                    f"附近有 Lost 轨迹，本帧跳过新建"
-                )
-                continue
+                count = self._pending_births.get(key, 0) + 1
+                self._pending_births[key] = count
+                if count < 2:
+                    logger.debug(
+                        f"[延迟出生] key={key} count={count} 附近有 Lost 轨迹，等待恢复"
+                    )
+                    continue
+                # 连续 2 帧仍未恢复，允许创建
+                del self._pending_births[key]
+            else:
+                self._pending_births.pop(key, None)
+
             self._create_track(det, frame_id)
+
+        # 清理本帧未出现的 pending key，防止无限增长
+        stale_keys = [k for k in self._pending_births if k not in seen_keys]
+        for k in stale_keys:
+            del self._pending_births[k]
 
     def cleanup(self) -> None:
         """删除 Removed 状态的轨迹"""

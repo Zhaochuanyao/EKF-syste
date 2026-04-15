@@ -38,9 +38,9 @@ tracker:
   # Stage A2：Lost 轨迹专项恢复（核心降碎片化手段）
   # 当 Mahal 门控拒绝后，给 Lost 轨迹第二次机会（IoU + 中心距离）
   lost_recovery_stage: true
-  cost_threshold_a2: 0.88      # 车辆场景：稍收紧，避免错误恢复
+  cost_threshold_a2: 0.95      # 车辆场景：稍收紧，避免错误恢复
 
-  min_create_score: 0.5        # 提高创建门限（减少误检触发新轨迹，降低碎片化）
+  min_create_score: 0.58       # 提高创建门限（减少误检触发新轨迹，降低碎片化）
   anchor_mode: center          # 车辆使用几何中心（更均衡）
 
 ekf:

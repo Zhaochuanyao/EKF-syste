@@ -268,34 +268,57 @@ def associate(
             a2_tracks = [tracks[i] for i in a2_track_list]
             a2_dets   = [detections[i] for i in a2_det_list]
 
-            # 位置优先：2D Mahalanobis + 中心距离 + 方向一致性
             pos_mahal_2d = _compute_position_mahal_2d(a2_tracks, a2_dets)
             center_c     = center_distance_cost_matrix(a2_tracks, a2_dets, center_norm)
-            direction_c  = _compute_direction_cost(a2_tracks, a2_dets)
+
+            # 方向代价：小位移时不可靠，置中性值
+            N2, M2 = len(a2_tracks), len(a2_dets)
+            direction_c = np.full((N2, M2), 0.5, dtype=np.float64)
+            for i, t in enumerate(a2_tracks):
+                t_cx = float(t.ekf.x[IDX_CX])
+                t_cy = float(t.ekf.x[IDX_CY])
+                for j, d in enumerate(a2_dets):
+                    dx = d.cx - t_cx
+                    dy = d.cy - t_cy
+                    dist = math.sqrt(dx * dx + dy * dy)
+                    min_reliable_dist = max(12.0, 0.25 * math.sqrt(d.w * d.w + d.h * d.h))
+                    if dist >= min_reliable_dist and t.heading_valid and abs(float(t.ekf.x[IDX_V])) >= 1e-3:
+                        theta = float(t.ekf.x[IDX_THETA])
+                        obs_theta = math.atan2(dy, dx)
+                        angle_diff = obs_theta - theta
+                        while angle_diff > math.pi:
+                            angle_diff -= 2 * math.pi
+                        while angle_diff < -math.pi:
+                            angle_diff += 2 * math.pi
+                        direction_c[i, j] = min(abs(angle_diff) / math.pi, 1.0)
+
+            # 每条 lost 轨迹的自适应 gate_i
+            gate_arr = np.array([
+                min(11.83 + 0.9 * float(t.time_since_update), 18.0)
+                for t in a2_tracks
+            ], dtype=np.float64)  # (N2,)
 
             cost_a2 = (
-                0.45 * np.clip(pos_mahal_2d / 11.83, 0.0, 2.0)
+                0.55 * np.clip(pos_mahal_2d / gate_arr[:, None], 0.0, 2.0)
                 + 0.35 * np.clip(center_c, 0.0, 2.0)
-                + 0.20 * direction_c
+                + 0.10 * direction_c
             )
 
             # ── 硬门控 ────────────────────────────────────────────
             for i, t in enumerate(a2_tracks):
+                gate_i = gate_arr[i]
                 for j, d in enumerate(a2_dets):
-                    # 1. 类别不一致
                     if t.class_id != d.class_id:
                         cost_a2[i, j] = np.inf
                         continue
-                    # 2. 2D Mahalanobis 超出 chi2(0.997, df=2) ≈ 11.83
-                    if pos_mahal_2d[i, j] > 11.83:
+                    if pos_mahal_2d[i, j] > gate_i:
                         cost_a2[i, j] = np.inf
                         continue
-                    # 3. 方向明显偏转且位置偏远
-                    if direction_c[i, j] > 0.85 and center_c[i, j] > 1.2:
+                    # 方向硬门控：仅在方向可靠（非中性 0.5）时启用
+                    if direction_c[i, j] != 0.5 and direction_c[i, j] > 0.93 and center_c[i, j] > 2.0:
                         cost_a2[i, j] = np.inf
                         continue
-                    # 4. 超远拒绝
-                    if center_c[i, j] > 2.0:
+                    if center_c[i, j] > 2.5:
                         cost_a2[i, j] = np.inf
 
             matches_a2_local, _, _ = hungarian_match(cost_a2, threshold=cost_threshold_a2)
@@ -306,14 +329,13 @@ def associate(
                 all_matches.append((r, c))
                 matched_tracks.add(r)
                 matched_dets.add(c)
-                unmatched_a_tracks.discard(r)      # 从 Stage B 候选中移除
-                unmatched_a_high_dets.discard(c)   # 从 Stage C 候选中移除
+                unmatched_a_tracks.discard(r)
+                unmatched_a_high_dets.discard(c)
                 logger.debug(
                     f"[Stage A2] track_id={tracks[r].track_id} ← det_idx={c} "
-                    f"cost={cost_a2[r_l, c_l]:.4f} "
-                    f"(mahal2d={pos_mahal_2d[r_l, c_l]:.2f} "
-                    f"center={center_c[r_l, c_l]:.3f} "
-                    f"dir={direction_c[r_l, c_l]:.3f})"
+                    f"cost={cost_a2[r_l, c_l]:.4f} gate_i={gate_arr[r_l]:.2f} "
+                    f"mahal2d={pos_mahal_2d[r_l, c_l]:.2f} "
+                    f"center={center_c[r_l, c_l]:.3f} dir={direction_c[r_l, c_l]:.3f}"
                 )
 
     # ══════════════════════════════════════════════════════════
