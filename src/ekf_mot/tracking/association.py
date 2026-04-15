@@ -13,6 +13,8 @@
 均为相对于输入 tracks 和 detections 列表的原始索引。
 """
 
+import math
+import logging
 from typing import List, Tuple
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -20,6 +22,91 @@ from scipy.optimize import linear_sum_assignment
 from .track import Track
 from .cost import iou_cost_matrix, fused_cost_matrix, center_distance_cost_matrix
 from ..core.types import Detection
+from ..core.constants import IDX_CX, IDX_CY, IDX_V, IDX_THETA
+
+logger = logging.getLogger("ekf_mot.tracking.association")
+
+
+def _compute_position_mahal_2d(
+    tracks: List[Track],
+    detections: List[Detection],
+) -> np.ndarray:
+    """
+    仅用 [cx, cy] 两维计算 Mahalanobis 距离代价矩阵。
+
+    Stage A2 专用：不混入 w/h，只关注位置连续性，
+    协方差取自 EKF innovation covariance 左上 2×2。
+
+    Returns:
+        (N, M) 代价矩阵，值域 >= 0
+    """
+    N, M = len(tracks), len(detections)
+    cost = np.full((N, M), 9999.0, dtype=np.float64)
+
+    for i, track in enumerate(tracks):
+        z_pred = track.get_predicted_measurement()  # (4,) [cx, cy, w, h]
+        S_full = track.get_innovation_covariance()  # (4, 4)
+        S2 = S_full[:2, :2]                         # 2×2 位置子矩阵
+
+        try:
+            S2_inv = np.linalg.inv(S2)
+        except np.linalg.LinAlgError:
+            S2_inv = np.linalg.pinv(S2)
+
+        pred_pos = z_pred[:2]  # [cx, cy]
+        for j, det in enumerate(detections):
+            det_pos = np.array([det.cx, det.cy], dtype=np.float64)
+            diff = det_pos - pred_pos
+            val = float(diff @ S2_inv @ diff)
+            cost[i, j] = max(val, 0.0)
+
+    return cost
+
+
+def _compute_direction_cost(
+    tracks: List[Track],
+    detections: List[Detection],
+) -> np.ndarray:
+    """
+    方向一致性代价：EKF 当前 heading 与"检测相对轨迹中心方向"的夹角差。
+
+    - heading_valid=False 或速度 < 1e-3 时返回中性代价 0.5
+    - 夹角差越大，代价越高（最大 1.0）
+
+    Returns:
+        (N, M) 代价矩阵，值域 [0, 1]
+    """
+    N, M = len(tracks), len(detections)
+    cost = np.full((N, M), 0.5, dtype=np.float64)
+
+    for i, track in enumerate(tracks):
+        if not track.heading_valid:
+            continue
+        ekf_v = abs(float(track.ekf.x[IDX_V]))
+        if ekf_v < 1e-3:
+            continue
+        theta = float(track.ekf.x[IDX_THETA])
+        track_cx = float(track.ekf.x[IDX_CX])
+        track_cy = float(track.ekf.x[IDX_CY])
+
+        for j, det in enumerate(detections):
+            dx = det.cx - track_cx
+            dy = det.cy - track_cy
+            dist = math.sqrt(dx * dx + dy * dy)
+            if dist < 1.0:
+                # 检测与预测位置几乎重合，方向无意义，用中性代价
+                cost[i, j] = 0.5
+                continue
+            obs_theta = math.atan2(dy, dx)
+            angle_diff = obs_theta - theta
+            # wrap to [-pi, pi]
+            while angle_diff > math.pi:
+                angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi:
+                angle_diff += 2 * math.pi
+            cost[i, j] = min(abs(angle_diff) / math.pi, 1.0)
+
+    return cost
 
 
 def hungarian_match(
@@ -181,14 +268,34 @@ def associate(
             a2_tracks = [tracks[i] for i in a2_track_list]
             a2_dets   = [detections[i] for i in a2_det_list]
 
-            iou_c    = iou_cost_matrix(a2_tracks, a2_dets)
-            center_c = center_distance_cost_matrix(a2_tracks, a2_dets, center_norm)
-            cost_a2  = 0.6 * iou_c + 0.4 * np.clip(center_c, 0, 2.0)
+            # 位置优先：2D Mahalanobis + 中心距离 + 方向一致性
+            pos_mahal_2d = _compute_position_mahal_2d(a2_tracks, a2_dets)
+            center_c     = center_distance_cost_matrix(a2_tracks, a2_dets, center_norm)
+            direction_c  = _compute_direction_cost(a2_tracks, a2_dets)
 
-            # 类别一致性约束（保留，但不做尺寸比约束，给 Lost 更多弹性）
+            cost_a2 = (
+                0.45 * np.clip(pos_mahal_2d / 11.83, 0.0, 2.0)
+                + 0.35 * np.clip(center_c, 0.0, 2.0)
+                + 0.20 * direction_c
+            )
+
+            # ── 硬门控 ────────────────────────────────────────────
             for i, t in enumerate(a2_tracks):
                 for j, d in enumerate(a2_dets):
+                    # 1. 类别不一致
                     if t.class_id != d.class_id:
+                        cost_a2[i, j] = np.inf
+                        continue
+                    # 2. 2D Mahalanobis 超出 chi2(0.997, df=2) ≈ 11.83
+                    if pos_mahal_2d[i, j] > 11.83:
+                        cost_a2[i, j] = np.inf
+                        continue
+                    # 3. 方向明显偏转且位置偏远
+                    if direction_c[i, j] > 0.85 and center_c[i, j] > 1.2:
+                        cost_a2[i, j] = np.inf
+                        continue
+                    # 4. 超远拒绝
+                    if center_c[i, j] > 2.0:
                         cost_a2[i, j] = np.inf
 
             matches_a2_local, _, _ = hungarian_match(cost_a2, threshold=cost_threshold_a2)
@@ -201,6 +308,13 @@ def associate(
                 matched_dets.add(c)
                 unmatched_a_tracks.discard(r)      # 从 Stage B 候选中移除
                 unmatched_a_high_dets.discard(c)   # 从 Stage C 候选中移除
+                logger.debug(
+                    f"[Stage A2] track_id={tracks[r].track_id} ← det_idx={c} "
+                    f"cost={cost_a2[r_l, c_l]:.4f} "
+                    f"(mahal2d={pos_mahal_2d[r_l, c_l]:.2f} "
+                    f"center={center_c[r_l, c_l]:.3f} "
+                    f"dir={direction_c[r_l, c_l]:.3f})"
+                )
 
     # ══════════════════════════════════════════════════════════
     # Stage B: 未匹配的 (Confirmed + Lost) × 低置信度检测框

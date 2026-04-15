@@ -2,6 +2,7 @@
 轨迹管理器 - 统一管理所有轨迹的创建、更新、删除
 """
 
+import math
 from typing import Dict, List, Optional
 import numpy as np
 
@@ -129,6 +130,35 @@ class TrackManager:
             if 0 <= idx < len(self._tracks):
                 self._tracks[idx].mark_missed()
 
+    def _has_nearby_recoverable_lost(self, det: Detection) -> bool:
+        """
+        判断是否存在"短时 Lost 且同类别"的轨迹位于检测框附近。
+
+        若存在，本帧先不新建轨迹，让 Stage A2 在下一帧有机会恢复。
+        避免旧轨迹还未恢复就被新 ID 抢占。
+
+        判定条件（同时满足）：
+          - track.is_lost
+          - track.class_id == det.class_id
+          - track.time_since_update <= 5
+          - 欧氏距离 < max(40.0, 0.6 * diag(det))
+        """
+        det_diag = math.sqrt(det.w * det.w + det.h * det.h)
+        dist_threshold = max(40.0, 0.6 * det_diag)
+        for track in self._tracks:
+            if not track.is_lost:
+                continue
+            if track.class_id != det.class_id:
+                continue
+            if track.time_since_update > 5:
+                continue
+            track_cx, track_cy = track.get_center()
+            dx = track_cx - det.cx
+            dy = track_cy - det.cy
+            if math.sqrt(dx * dx + dy * dy) < dist_threshold:
+                return True
+        return False
+
     def create_new_tracks(
         self,
         unmatched_det_indices: List[int],
@@ -137,12 +167,23 @@ class TrackManager:
     ) -> None:
         """
         为未匹配的检测框创建新轨迹。
-        低于 min_create_score 的检测框跳过（避免噪声触发）。
+
+        新增"延迟出生"保护：
+          - 低于 min_create_score 的检测框跳过（噪声抑制）
+          - 附近存在短时 Lost 同类轨迹时，本帧暂不新建（防止旧轨迹
+            尚未恢复就被新 ID 抢占，减少轨迹碎片化）
         """
         for idx in unmatched_det_indices:
             det = detections[idx]
-            if det.score >= self.min_create_score:
-                self._create_track(det, frame_id)
+            if det.score < self.min_create_score:
+                continue
+            if self._has_nearby_recoverable_lost(det):
+                logger.debug(
+                    f"[延迟出生] 检测 score={det.score:.2f} class={det.class_name} "
+                    f"附近有 Lost 轨迹，本帧跳过新建"
+                )
+                continue
+            self._create_track(det, frame_id)
 
     def cleanup(self) -> None:
         """删除 Removed 状态的轨迹"""
