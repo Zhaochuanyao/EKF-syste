@@ -320,26 +320,40 @@ class ExtendedKalmanFilter:
         v: Optional[float] = None,
         theta: Optional[float] = None,
         omega: Optional[float] = None,
+        inflate_cov: bool = False,
+        v_var_scale: float = 4.0,
+        theta_var_scale: float = 3.0,
+        omega_var_scale: float = 5.0,
     ) -> None:
         """
         直接设置运动学状态（用于 bootstrap 初始化）。
 
-        在轨迹确认前根据前几帧观测估计的速度和方向，
-        比默认零初始化能更快收敛到真实运动状态。
+        inflate_cov=True 时同步放大对应协方差对角元素，
+        避免"状态改了但 P 还很自信"导致 EKF 拒绝后续观测修正。
 
         Args:
-            v:     速度模长（像素/秒），None 则不修改
-            theta: 航向角（弧度），None 则不修改
-            omega: 角速度（弧度/秒），None 则不修改
+            v:              速度模长（像素/秒），None 则不修改
+            theta:          航向角（弧度），None 则不修改
+            omega:          角速度（弧度/秒），None 则不修改
+            inflate_cov:    是否同步放大对应协方差
+            v_var_scale:    P[IDX_V, IDX_V] 放大倍数
+            theta_var_scale:P[IDX_THETA, IDX_THETA] 放大倍数
+            omega_var_scale:P[IDX_OMEGA, IDX_OMEGA] 放大倍数
         """
         if not self._initialized:
             return
         if v is not None:
             self.x[IDX_V] = float(v)
+            if inflate_cov:
+                self.P[IDX_V, IDX_V] = max(self.P[IDX_V, IDX_V], 1e-4) * v_var_scale
         if theta is not None:
             self.x[IDX_THETA] = self._normalize_angle(float(theta))
+            if inflate_cov:
+                self.P[IDX_THETA, IDX_THETA] = max(self.P[IDX_THETA, IDX_THETA], 1e-4) * theta_var_scale
         if omega is not None:
             self.x[IDX_OMEGA] = float(omega)
+            if inflate_cov:
+                self.P[IDX_OMEGA, IDX_OMEGA] = max(self.P[IDX_OMEGA, IDX_OMEGA], 1e-4) * omega_var_scale
 
     # ──────────────────────────────────────────────────────────
     # 位置不确定性接口
