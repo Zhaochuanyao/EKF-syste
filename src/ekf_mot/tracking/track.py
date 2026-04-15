@@ -320,12 +320,14 @@ class Track:
             vy_est = dy / dt
 
         v_est = math.sqrt(vx_est ** 2 + vy_est ** 2)
+        # 硬限速：防止噪声检测产生极端速度估计（300px/s @ 25fps = 12px/frame）
+        v_est = min(v_est, 300.0)
         theta_est = math.atan2(vy_est, vx_est)
 
         # ── EMA 融合 ─────────────────────────────────────────────
         in_recovery = self._recover_frames_left > 0
-        alpha_v = 0.2 if in_recovery else 0.4
-        alpha_t = 0.1 if in_recovery else 0.25
+        alpha_v = 0.08 if in_recovery else 0.12
+        alpha_t = 0.06 if in_recovery else 0.10
 
         if self._ema_v is None:
             self._ema_v = v_est
@@ -351,8 +353,8 @@ class Track:
                 omega_est = curr_omega * 0.8
             else:
                 omega_raw = dtheta_o / dt
-                # 严格限幅：恢复期 0.15，正常期 0.25 rad/s
-                omega_limit = 0.15 if in_recovery else 0.25
+                # 严格限幅：恢复期 0.10，正常期 0.18 rad/s
+                omega_limit = 0.10 if in_recovery else 0.18
                 omega_raw = max(-omega_limit, min(omega_limit, omega_raw))
                 curr_omega = float(self.ekf.x[IDX_OMEGA])
                 omega_est = 0.8 * curr_omega + 0.2 * omega_raw

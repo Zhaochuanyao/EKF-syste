@@ -45,25 +45,25 @@ tracker:
 
 ekf:
   process_noise:
-    std_acc: 1.5         # 车辆加速度较小（受限于道路和交通法规）
-    std_yaw_rate: 0.3    # 车辆转向率变化较平稳
-    std_size: 0.05       # 车辆尺寸几乎不变化
-    lost_age_q_scale: 1.30  # Lost 轨迹每丢失一帧 Q 放大基数（指数，最多8x）
+    std_acc: 0.5         # 大幅降低：抑制位置/速度抖动（原1.5）
+    std_yaw_rate: 0.15   # 降低：减少航向漂移（原0.3）
+    std_size: 0.05       # 保持
+    lost_age_q_scale: 1.30
   measurement_noise:
-    std_cx: 5.0
-    std_cy: 5.0
-    std_w: 15.0          # 车辆宽度检测误差较大（角度变化）
-    std_h: 10.0
+    std_cx: 12.0         # 大幅提高：更信任模型，减少检测抖动传入（原5.0）
+    std_cy: 12.0
+    std_w: 20.0          # 提高（原15.0）
+    std_h: 15.0          # 提高（原10.0）
     score_adaptive: true
-    size_adaptive: true     # 大型车辆（卡车/巴士）检测误差更大
+    size_adaptive: true
     border_adaptive: false
-    aspect_adaptive: true   # 车辆在不同角度下宽高比变化大
+    aspect_adaptive: true
   initial_covariance:
     std_cx: 10.0
     std_cy: 10.0
-    std_v: 50.0          # 车辆初始速度不确定性大（可能 0~120 km/h）
-    std_theta: 0.8       # 车辆初始方向未知
-    std_omega: 0.2       # 车辆角速度变化较平稳
+    std_v: 30.0          # 降低初始速度不确定性（原50.0），减少早期速度跳变
+    std_theta: 0.8
+    std_omega: 0.2
     std_w: 25.0
     std_h: 15.0
 
@@ -73,7 +73,7 @@ prediction:
   max_position_cov_trace: 2000.0   # 车辆场景位置不确定性上限
   fixed_lag_smoothing: true    # 启用 EMA 固定滞后平滑，压低历史轨迹高频抖动
   smoothing_lag: 5             # EMA 滞后帧数（alpha = 2/(lag+1) ≈ 0.33）
-  smoothing_alpha: 0.35        # 显式指定 EMA alpha（覆盖 lag 推导值）
+  smoothing_alpha: 0.15        # 降低：更强平滑，抑制高频抖动（原0.35）
 
 output:
   output_dir: outputs/vehicle_accuracy/

@@ -15,9 +15,9 @@ from typing import Optional
 
 def build_process_noise_Q(
     dt: float,
-    std_acc: float = 2.0,
-    std_yaw_rate: float = 0.5,
-    std_size: float = 0.1,
+    std_acc: float = 0.8,
+    std_yaw_rate: float = 0.2,
+    std_size: float = 0.05,
     lost_age: int = 0,
     lost_age_q_scale: float = 1.5,
 ) -> np.ndarray:
@@ -53,13 +53,13 @@ def build_process_noise_Q(
     Q[0, 0] = q_v * dt4 / 4
     # cy 方向（索引1）
     Q[1, 1] = q_v * dt4 / 4
-    # v 方向（索引2）
-    Q[2, 2] = q_v * dt2
-    # cx-v 交叉项
-    Q[0, 2] = q_v * dt3 / 2
-    Q[2, 0] = q_v * dt3 / 2
-    Q[1, 2] = q_v * dt3 / 2
-    Q[2, 1] = q_v * dt3 / 2
+    # v 方向（索引2）：CTRV 中 v 是速度模长，减小其过程噪声防止漂移
+    Q[2, 2] = q_v * dt2 * 0.25
+    # cx-v 和 cy-v 交叉项（对称，保证 Q 正定）
+    Q[0, 2] = q_v * dt3 / 4
+    Q[2, 0] = q_v * dt3 / 4
+    Q[1, 2] = q_v * dt3 / 4
+    Q[2, 1] = q_v * dt3 / 4
 
     # ── 航向角和角速度方向的过程噪声 ─────────────────────────
     q_omega = std_yaw_rate ** 2
@@ -89,10 +89,10 @@ def build_process_noise_Q(
 
 
 def build_measurement_noise_R(
-    std_cx: float = 5.0,
-    std_cy: float = 5.0,
-    std_w: float = 10.0,
-    std_h: float = 10.0,
+    std_cx: float = 8.0,
+    std_cy: float = 8.0,
+    std_w: float = 15.0,
+    std_h: float = 15.0,
     score: Optional[float] = None,
     score_adaptive: bool = True,
     # 新增自适应参数

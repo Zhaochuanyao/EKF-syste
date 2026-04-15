@@ -11,16 +11,16 @@ tracker:
 
   # 过程噪声
   process_noise:
-    std_acc: 2.0
-    std_yaw_rate: 0.5
-    std_size: 0.1
+    std_acc: 0.8
+    std_yaw_rate: 0.2
+    std_size: 0.05
 
   # 观测噪声
   measurement_noise:
-    std_cx: 5.0
-    std_cy: 5.0
-    std_w: 10.0
-    std_h: 10.0
+    std_cx: 8.0
+    std_cy: 8.0
+    std_w: 15.0
+    std_h: 15.0
     score_adaptive: true
 
   # 初始协方差对角元素标准差

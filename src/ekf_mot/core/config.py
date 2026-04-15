@@ -163,15 +163,15 @@ def get_default_config() -> Dict[str, Any]:
         },
         "ekf": {
             "process_noise": {
-                "std_acc": 2.0,
-                "std_yaw_rate": 0.5,
-                "std_size": 0.1,
+                "std_acc": 0.8,
+                "std_yaw_rate": 0.2,
+                "std_size": 0.05,
             },
             "measurement_noise": {
-                "std_cx": 5.0,
-                "std_cy": 5.0,
-                "std_w": 10.0,
-                "std_h": 10.0,
+                "std_cx": 8.0,
+                "std_cy": 8.0,
+                "std_w": 15.0,
+                "std_h": 15.0,
                 "score_adaptive": True,
             },
             "initial_covariance": {
@@ -189,6 +189,8 @@ def get_default_config() -> Dict[str, Any]:
             "future_steps": [1, 5, 10],
             "smooth_history": True,
             "smooth_window": 5,
+            "fixed_lag_smoothing": True,
+            "smoothing_lag": 5,
         },
         "visualization": {
             "draw_bbox": True,

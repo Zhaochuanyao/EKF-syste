@@ -56,10 +56,8 @@ def ctrv_predict(
         x_new[IDX_THETA] = theta_new
 
     # v, omega, w, h 保持不变（匀速假设）
-    # x_new[IDX_V] = v
-    # x_new[IDX_OMEGA] = omega
-    # x_new[IDX_W] = w
-    # x_new[IDX_H] = h
+    # 速度轻微衰减：防止无观测时速度无限积累（0.98^25fps ≈ 0.6/s，合理）
+    x_new[IDX_V] = v * 0.98
 
     return x_new
 

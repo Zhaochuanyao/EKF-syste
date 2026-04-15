@@ -57,8 +57,10 @@ function drawOverlay(
         : (track.raw_history ?? []);
       if (history.length >= 2) {
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
-        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 2.5;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.globalAlpha = 0.85;
         ctx.beginPath();
         ctx.moveTo(history[0][0] * sx, history[0][1] * sy);
         for (let i = 1; i < history.length; i++) {
@@ -159,7 +161,7 @@ export default function CameraPredictPage() {
 
   const [showTracks, setShowTracks] = useState(true);
   const [showFuture, setShowFuture] = useState(true);
-  const [showSmoothed, setShowSmoothed] = useState(false);
+  const [showSmoothed, setShowSmoothed] = useState(true);
   const [fps, setFps] = useState(5);
   const [configName, setConfigName] = useState('demo_vehicle_accuracy');
 

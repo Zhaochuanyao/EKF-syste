@@ -95,8 +95,8 @@ class TrackingService:
         self.predictor = TrajectoryPredictor(
             future_steps=getattr(pred_cfg, "future_steps", [1, 5, 10]),
             dt=getattr(self.cfg.tracker, "dt", 0.04),
-            fixed_lag_smoothing=getattr(pred_cfg, "fixed_lag_smoothing", False),
-            smoothing_lag=getattr(pred_cfg, "smoothing_lag", 3),
+            fixed_lag_smoothing=getattr(pred_cfg, "fixed_lag_smoothing", True),
+            smoothing_lag=getattr(pred_cfg, "smoothing_lag", 5),
         )
         self._frame_id = 0
 

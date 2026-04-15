@@ -36,15 +36,15 @@ tracker:
   auto_dt: true          # 是否从视频FPS自动估算dt
 
   # 轨迹生命周期
-  n_init: 3              # 轨迹确认所需连续命中帧数
-  max_age: 20            # 轨迹最大丢失帧数
+  n_init: 2              # 降低：2帧确认，减少碎片化
+  max_age: 30            # 延长：容忍更长遮挡
   min_hits: 1            # 最小命中次数（保留兼容）
 
   # ── 三阶段关联参数 ───────────────────────────────────────────
   # Stage A: (Confirmed+Lost) vs 高置信度检测框
   high_conf_threshold: 0.5     # 高置信度分界（score >= 此值进 Stage A）
   low_conf_threshold: 0.1      # 低置信度分界（low_conf_threshold <= score < high_conf_threshold 进 Stage B）
-  gating_threshold_confirmed: 9.4877   # Stage A Mahalanobis 门控阈值（chi2, df=4, 95%）
+  gating_threshold_confirmed: 13.277   # 放宽至 chi2(0.997, df=4)，减少断轨
   cost_iou_weight: 0.4         # Stage A IoU 代价权重
   cost_mahal_weight: 0.4       # Stage A Mahalanobis 代价权重
   cost_center_weight_confirmed: 0.2    # Stage A 中心距离代价权重
@@ -71,17 +71,17 @@ tracker:
 ekf:
   # 过程噪声（状态转移不确定性）
   process_noise:
-    std_acc: 2.0         # 加速度标准差（影响速度变化）
-    std_yaw_rate: 0.5    # 角速度变化标准差
-    std_size: 0.1        # 尺寸变化标准差
+    std_acc: 0.5         # 降低：减少位置/速度过程噪声，抑制抖动
+    std_yaw_rate: 0.15   # 降低：减少航向漂移
+    std_size: 0.05       # 降低：尺寸几乎不变
     # lost_age_adaptive 通过 Track 自动处理，无需单独配置
 
   # 观测噪声（检测不确定性）
   measurement_noise:
-    std_cx: 5.0          # 中心x坐标标准差（像素）
-    std_cy: 5.0          # 中心y坐标标准差（像素）
-    std_w: 10.0          # 宽度标准差（像素）
-    std_h: 10.0          # 高度标准差（像素）
+    std_cx: 12.0         # 提高：更信任模型，减少检测抖动传入
+    std_cy: 12.0
+    std_w: 18.0
+    std_h: 18.0
     score_adaptive: true # 是否根据检测置信度自适应调整R
     size_adaptive: false # 是否根据目标尺寸自适应调整R
     border_adaptive: false  # 是否根据边界距离自适应调整R
