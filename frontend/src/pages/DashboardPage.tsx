@@ -55,8 +55,9 @@ const TECH_STACK = [
   'Hungarian Algorithm',
   '3-Stage Association',
   'Bootstrap Kinematics',
-  'Adaptive Noise',
+  'Adaptive Process Noise',
   'Prediction Gate',
+  'Fixed-Lag Smoothing',
 ];
 
 function BackendStatusBanner() {

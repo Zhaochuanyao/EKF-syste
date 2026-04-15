@@ -61,7 +61,18 @@ class MultiObjectTracker:
         std_w: float = 10.0,
         std_h: float = 10.0,
         score_adaptive: bool = True,
+        size_adaptive: bool = False,
+        aspect_adaptive: bool = False,
+        lost_age_q_scale: float = 1.3,
         omega_threshold: float = 0.001,
+        # ── 初始协方差参数 ──────────────────────────────────────
+        init_std_cx: float = 10.0,
+        init_std_cy: float = 10.0,
+        init_std_v: float = 5.0,
+        init_std_theta: float = 0.5,
+        init_std_omega: float = 0.2,
+        init_std_w: float = 20.0,
+        init_std_h: float = 20.0,
         # ── 向后兼容参数 ────────────────────────────────────────
         iou_threshold: float = None,          # 兼容旧配置，映射到 iou_threshold_c
         gating_threshold: float = None,        # 兼容旧配置
@@ -110,7 +121,17 @@ class MultiObjectTracker:
             std_w=std_w,
             std_h=std_h,
             score_adaptive=score_adaptive,
+            size_adaptive=size_adaptive,
+            aspect_adaptive=aspect_adaptive,
+            lost_age_q_scale=lost_age_q_scale,
             omega_threshold=omega_threshold,
+            init_std_cx=init_std_cx,
+            init_std_cy=init_std_cy,
+            init_std_v=init_std_v,
+            init_std_theta=init_std_theta,
+            init_std_omega=init_std_omega,
+            init_std_w=init_std_w,
+            init_std_h=init_std_h,
         )
 
         self._frame_count = 0
@@ -189,6 +210,7 @@ class MultiObjectTracker:
 
         pn = _get(ekf_cfg, "process_noise", {})
         mn = _get(ekf_cfg, "measurement_noise", {})
+        ic = _get(ekf_cfg, "initial_covariance", {})
 
         def _g(d, k, v):
             return d.get(k, v) if isinstance(d, dict) else getattr(d, k, v)
@@ -225,4 +247,15 @@ class MultiObjectTracker:
             std_w=_g(mn, "std_w", 10.0),
             std_h=_g(mn, "std_h", 10.0),
             score_adaptive=_g(mn, "score_adaptive", True),
+            size_adaptive=_g(mn, "size_adaptive", False),
+            aspect_adaptive=_g(mn, "aspect_adaptive", False),
+            lost_age_q_scale=_g(pn, "lost_age_q_scale", 1.3),
+            # 初始协方差（YAML: ekf.initial_covariance）
+            init_std_cx=_g(ic, "std_cx", 10.0),
+            init_std_cy=_g(ic, "std_cy", 10.0),
+            init_std_v=_g(ic, "std_v", 5.0),
+            init_std_theta=_g(ic, "std_theta", 0.5),
+            init_std_omega=_g(ic, "std_omega", 0.2),
+            init_std_w=_g(ic, "std_w", 20.0),
+            init_std_h=_g(ic, "std_h", 20.0),
         )

@@ -41,6 +41,9 @@ class TrackManager:
         std_w: float = 10.0,
         std_h: float = 10.0,
         score_adaptive: bool = True,
+        size_adaptive: bool = False,
+        aspect_adaptive: bool = False,
+        lost_age_q_scale: float = 1.3,
         omega_threshold: float = 0.001,
         # 初始协方差参数
         init_std_cx: float = 10.0,
@@ -68,6 +71,9 @@ class TrackManager:
             std_w=std_w,
             std_h=std_h,
             score_adaptive=score_adaptive,
+            size_adaptive=size_adaptive,
+            aspect_adaptive=aspect_adaptive,
+            lost_age_q_scale=lost_age_q_scale,
             omega_threshold=omega_threshold,
         )
         self._init_cov_params = dict(

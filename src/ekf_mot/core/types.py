@@ -114,6 +114,10 @@ class Measurement:
     R: Optional[np.ndarray] = None  # 观测噪声协方差（可选，用于自适应）
     score: float = 1.0      # 检测置信度（用于自适应R）
     frame_id: int = 0
+    # 自适应 R 所需的目标尺寸信息（可选，不填则跳过自适应）
+    bbox_w: Optional[float] = None      # 检测框宽度（像素），size_adaptive 使用
+    bbox_h: Optional[float] = None      # 检测框高度（像素），size_adaptive 使用
+    aspect_ratio: Optional[float] = None  # 宽高比 w/h，aspect_adaptive 使用
 
 
 @dataclass

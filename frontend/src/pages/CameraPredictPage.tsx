@@ -29,6 +29,7 @@ function drawOverlay(
   videoH: number,
   showTracks: boolean,
   showFuture: boolean,
+  showSmoothed: boolean,
 ) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -50,6 +51,23 @@ function drawOverlay(
     const bw = (x2 - x1) * sx, bh = (y2 - y1) * sy;
 
     if (showTracks) {
+      // 历史轨迹线（平滑或原始）
+      const history = showSmoothed
+        ? (track.smoothed_history ?? track.raw_history ?? [])
+        : (track.raw_history ?? []);
+      if (history.length >= 2) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        ctx.moveTo(history[0][0] * sx, history[0][1] * sy);
+        for (let i = 1; i < history.length; i++) {
+          ctx.lineTo(history[i][0] * sx, history[i][1] * sy);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+      }
+
       // 边框
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
@@ -141,6 +159,7 @@ export default function CameraPredictPage() {
 
   const [showTracks, setShowTracks] = useState(true);
   const [showFuture, setShowFuture] = useState(true);
+  const [showSmoothed, setShowSmoothed] = useState(false);
   const [fps, setFps] = useState(5);
   const [configName, setConfigName] = useState('demo_vehicle_accuracy');
 
@@ -190,7 +209,7 @@ export default function CameraPredictPage() {
         drawOverlay(
           canvasRef.current, resp.tracks,
           video.videoWidth, video.videoHeight,
-          showTracks, showFuture,
+          showTracks, showFuture, showSmoothed,
         );
       }
 
@@ -207,7 +226,7 @@ export default function CameraPredictPage() {
     } finally {
       isPredictingRef.current = false;
     }
-  }, [videoRef, showTracks, showFuture, syncCanvasSize]);
+  }, [videoRef, showTracks, showFuture, showSmoothed, syncCanvasSize]);
 
   // 启动/停止预测循环
   useEffect(() => {
@@ -479,6 +498,7 @@ export default function CameraPredictPage() {
               {([
                 ['showTracks', '显示检测框 & ID', showTracks, setShowTracks],
                 ['showFuture', '显示预测轨迹点', showFuture, setShowFuture],
+                ['showSmoothed', '历史轨迹：EMA平滑（关=原始）', showSmoothed, setShowSmoothed],
               ] as [string, string, boolean, (v: boolean) => void][]).map(
                 ([key, label, value, setter]) => (
                   <label key={key} className="flex items-center justify-between cursor-pointer group">

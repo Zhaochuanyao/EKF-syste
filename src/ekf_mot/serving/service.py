@@ -14,6 +14,7 @@ from ..detection import build_detector
 from ..tracking.multi_object_tracker import MultiObjectTracker
 from ..prediction.trajectory_predictor import TrajectoryPredictor
 from ..core.config import get_default_config, load_config, Config
+from ..core.constants import IDX_V, IDX_THETA, IDX_OMEGA
 from ..utils.logger import get_logger
 
 logger = get_logger("ekf_mot.serving")
@@ -94,6 +95,8 @@ class TrackingService:
         self.predictor = TrajectoryPredictor(
             future_steps=getattr(pred_cfg, "future_steps", [1, 5, 10]),
             dt=getattr(self.cfg.tracker, "dt", 0.04),
+            fixed_lag_smoothing=getattr(pred_cfg, "fixed_lag_smoothing", False),
+            smoothing_lag=getattr(pred_cfg, "smoothing_lag", 3),
         )
         self._frame_id = 0
 
@@ -111,6 +114,12 @@ class TrackingService:
                 future = self.predictor.predict_track(track)
             cx, cy = track.get_center()
             bbox = track.get_bbox()
+
+            # 命中帧更新 EMA 平滑历史（fixed_lag_smoothing=False 时为 no-op）
+            if track.is_confirmed and track.time_since_update == 0:
+                self.predictor.update_smooth(track.track_id, float(cx), float(cy))
+
+            ekf_x = track.ekf.x
             results.append({
                 "track_id": track.track_id,
                 "bbox": {
@@ -128,6 +137,17 @@ class TrackingService:
                     str(k): [float(v[0]), float(v[1])]
                     for k, v in future.items()
                 },
+                "raw_history": [
+                    [float(p[0]), float(p[1])] for p in track.history[-50:]
+                ],
+                "smoothed_history": [
+                    [float(p[0]), float(p[1])]
+                    for p in self.predictor.get_smooth_history(track.track_id)[-50:]
+                ],
+                "velocity": float(ekf_x[IDX_V]),
+                "heading": float(ekf_x[IDX_THETA]),
+                "omega": float(ekf_x[IDX_OMEGA]),
+                "recovered_recently": bool(track.recovered_recently),
             })
 
         elapsed_ms = (time.perf_counter() - t0) * 1000

@@ -79,8 +79,56 @@ def _smoothness(history: List[Tuple[float, float]]) -> float:
     return float(np.mean(accels))
 
 
+def _heading_change_std(history: List[Tuple[float, float]]) -> float:
+    """
+    帧间航向变化标准差（弧度）。
+
+    反映轨迹方向的稳定性：值越小，车辆行驶方向越连贯，转向噪声越低。
+    仅从 (cx, cy) 历史推算，无需 EKF 内部状态，Baseline/EKF 均适用。
+    """
+    import numpy as np
+    if len(history) < 3:
+        return 0.0
+
+    def _normalize_angle(a: float) -> float:
+        while a > math.pi:
+            a -= 2 * math.pi
+        while a < -math.pi:
+            a += 2 * math.pi
+        return a
+
+    headings = [
+        math.atan2(history[i][1] - history[i-1][1],
+                   history[i][0] - history[i-1][0])
+        for i in range(1, len(history))
+    ]
+    heading_changes = [
+        _normalize_angle(headings[i] - headings[i-1])
+        for i in range(1, len(headings))
+    ]
+    return float(np.std(heading_changes))
+
+
+def _velocity_variance(history: List[Tuple[float, float]]) -> float:
+    """
+    帧间速度（位移模长）方差（像素²/帧²）。
+
+    反映轨迹速度的稳定性：值越小，车辆速度变化越均匀，
+    EKF 如果真正平滑了运动状态，该指标应低于 Baseline。
+    """
+    import numpy as np
+    if len(history) < 2:
+        return 0.0
+    speeds = [
+        math.sqrt((history[i][0] - history[i-1][0])**2
+                  + (history[i][1] - history[i-1][1])**2)
+        for i in range(1, len(history))
+    ]
+    return float(np.var(speeds))
+
+
 def _aggregate_track_quality(track_histories: List[List[Tuple]]) -> Dict:
-    """汇总多条轨迹的质量指标"""
+    """汇总多条轨迹的质量指标（含航向稳定性和速度方差）"""
     import numpy as np
     if not track_histories:
         return {
@@ -88,15 +136,21 @@ def _aggregate_track_quality(track_histories: List[List[Tuple]]) -> Dict:
             "avg_track_length": 0.0,
             "avg_jitter": 0.0,
             "avg_smoothness": 0.0,
+            "avg_heading_change_std": 0.0,
+            "avg_velocity_variance": 0.0,
         }
     lengths = [len(h) for h in track_histories]
-    jitters = [_jitter(h) for h in track_histories if len(h) >= 2]
-    smooths = [_smoothness(h) for h in track_histories if len(h) >= 3]
+    jitters  = [_jitter(h)             for h in track_histories if len(h) >= 2]
+    smooths  = [_smoothness(h)         for h in track_histories if len(h) >= 3]
+    hd_stds  = [_heading_change_std(h) for h in track_histories if len(h) >= 3]
+    vel_vars = [_velocity_variance(h)  for h in track_histories if len(h) >= 2]
     return {
         "num_tracks": len(track_histories),
-        "avg_track_length": round(float(np.mean(lengths)), 2),
-        "avg_jitter": round(float(np.mean(jitters)) if jitters else 0.0, 4),
-        "avg_smoothness": round(float(np.mean(smooths)) if smooths else 0.0, 4),
+        "avg_track_length":       round(float(np.mean(lengths)), 2),
+        "avg_jitter":             round(float(np.mean(jitters))   if jitters  else 0.0, 4),
+        "avg_smoothness":         round(float(np.mean(smooths))   if smooths  else 0.0, 4),
+        "avg_heading_change_std": round(float(np.mean(hd_stds))   if hd_stds  else 0.0, 4),
+        "avg_velocity_variance":  round(float(np.mean(vel_vars))  if vel_vars else 0.0, 4),
     }
 
 
@@ -231,9 +285,12 @@ def run_ekf(
         elapsed = (time.perf_counter() - t0) * 1000
         elapsed_times.append(elapsed)
 
-        # 收集轨迹历史（EKF 滤波后的中心点）
+        # 收集轨迹历史（EKF 滤波后的中心点，仅命中帧）
+        # 注意：只在有检测命中（time_since_update == 0）时追加，
+        # 与 Baseline 保持相同采样策略（Baseline 的 history 也只记录命中帧）。
+        # 若包含 predict-only 帧，EKF 的 CTRV 外推漂移会虚增 jitter，导致对比不公平。
         for t in active_tracks:
-            if t.is_confirmed:
+            if t.is_confirmed and t.time_since_update == 0:
                 cx, cy = t.get_center()
                 if t.track_id not in all_track_histories:
                     all_track_histories[t.track_id] = []
@@ -294,13 +351,17 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
         pct = _pct_change(base_val, ekf_val, lower_is_better)
         return f"{pct:+.1f}%"
 
-    jitter_pct  = _pct_change(baseline["avg_jitter"],      ekf["avg_jitter"],      True)
-    smooth_pct  = _pct_change(baseline["avg_smoothness"],  ekf["avg_smoothness"],  True)
-    len_pct     = _pct_change(baseline["avg_track_length"], ekf["avg_track_length"], False)
+    jitter_pct  = _pct_change(baseline["avg_jitter"],             ekf["avg_jitter"],             True)
+    smooth_pct  = _pct_change(baseline["avg_smoothness"],         ekf["avg_smoothness"],         True)
+    len_pct     = _pct_change(baseline["avg_track_length"],        ekf["avg_track_length"],       False)
+    hd_pct      = _pct_change(baseline["avg_heading_change_std"],  ekf["avg_heading_change_std"], True)
+    vel_pct     = _pct_change(baseline["avg_velocity_variance"],   ekf["avg_velocity_variance"],  True)
 
-    jitter_imprv = _improvement_str(baseline["avg_jitter"],      ekf["avg_jitter"],      True)
-    smooth_imprv = _improvement_str(baseline["avg_smoothness"],  ekf["avg_smoothness"],  True)
-    len_imprv    = _improvement_str(baseline["avg_track_length"], ekf["avg_track_length"], False)
+    jitter_imprv = _improvement_str(baseline["avg_jitter"],             ekf["avg_jitter"],             True)
+    smooth_imprv = _improvement_str(baseline["avg_smoothness"],         ekf["avg_smoothness"],         True)
+    len_imprv    = _improvement_str(baseline["avg_track_length"],        ekf["avg_track_length"],       False)
+    hd_imprv     = _improvement_str(baseline["avg_heading_change_std"],  ekf["avg_heading_change_std"], True)
+    vel_imprv    = _improvement_str(baseline["avg_velocity_variance"],   ekf["avg_velocity_variance"],  True)
 
     # 动态结论：根据实际数值判断各维度优劣（语义明确，不出现"改善 -87%"）
     def _verdict(base_val: float, ekf_val: float, lower_is_better: bool, name: str,
@@ -310,7 +371,7 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
         if lower_is_better:
             better = ekf_val < base_val
             return (f"{name}：EKF {'更优' if better else '更差'}"
-                    f"（EKF={ekf_val:.3f} vs Base={base_val:.3f}），{fmt}")
+                    f"（EKF={ekf_val:.4f} vs Base={base_val:.4f}），{fmt}")
         else:
             better = ekf_val > base_val
             return (f"{name}：EKF {'更优' if better else '更差'}"
@@ -329,12 +390,14 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
 
     conclusion_lines = [
         "EKF 系统相比 Baseline：",
-        f"  {_verdict(baseline['avg_jitter'],      ekf['avg_jitter'],      True,  '轨迹抖动',   jitter_pct, _format_change(jitter_pct))}",
-        f"  {_verdict(baseline['avg_smoothness'],  ekf['avg_smoothness'],  True,  '轨迹平滑度', smooth_pct, _format_change(smooth_pct))}",
-        f"  {_verdict(baseline['avg_track_length'],ekf['avg_track_length'],False, '平均轨迹长度',len_pct,   _format_change(len_pct))}",
+        f"  {_verdict(baseline['avg_jitter'],            ekf['avg_jitter'],            True,  '轨迹抖动',     jitter_pct, _format_change(jitter_pct))}",
+        f"  {_verdict(baseline['avg_smoothness'],        ekf['avg_smoothness'],        True,  '轨迹平滑度',   smooth_pct, _format_change(smooth_pct))}",
+        f"  {_verdict(baseline['avg_heading_change_std'],ekf['avg_heading_change_std'],True,  '航向变化稳定性',hd_pct,    _format_change(hd_pct))}",
+        f"  {_verdict(baseline['avg_velocity_variance'], ekf['avg_velocity_variance'], True,  '速度方差',     vel_pct,    _format_change(vel_pct))}",
+        f"  {_verdict(baseline['avg_track_length'],      ekf['avg_track_length'],      False, '平均轨迹长度', len_pct,    _format_change(len_pct))}",
         f"  {track_note}",
         "",
-        "指标说明：抖动/平滑度越小越好；轨迹长度越大越好；轨迹总数越少碎片化越低。",
+        "指标说明：抖动/平滑度/航向稳定性/速度方差越小越好；轨迹长度越大越好；轨迹总数越少碎片化越低。",
     ]
 
     return {
@@ -352,6 +415,18 @@ def build_compare_summary(baseline: Dict, ekf: Dict) -> Dict:
                 "ekf": ekf["avg_smoothness"],
                 "improvement": smooth_imprv,
                 "note": "帧间加速度均值（越小越平滑，lower is better）",
+            },
+            "avg_heading_change_std": {
+                "baseline": baseline["avg_heading_change_std"],
+                "ekf": ekf["avg_heading_change_std"],
+                "improvement": hd_imprv,
+                "note": "帧间航向变化标准差（越小方向越稳，lower is better）",
+            },
+            "avg_velocity_variance": {
+                "baseline": baseline["avg_velocity_variance"],
+                "ekf": ekf["avg_velocity_variance"],
+                "improvement": vel_imprv,
+                "note": "帧间速度方差（越小速度越均匀，lower is better）",
             },
             "num_tracks": {
                 "baseline": base_tracks,
@@ -471,16 +546,16 @@ def main():
     logger.info(f"  {out_dir / 'compare_summary.json'}")
 
     # ── 打印核心对比 ──────────────────────────────────────────
-    logger.info(f"\n{'='*50}")
+    logger.info(f"\n{'='*62}")
     logger.info("核心对比结果:")
-    logger.info(f"{'指标':<20} {'Baseline':>12} {'EKF':>12} {'改善':>10}")
-    logger.info("-" * 56)
+    logger.info(f"{'指标':<28} {'Baseline':>12} {'EKF':>12} {'改善':>10}")
+    logger.info("-" * 64)
     mc = compare_summary["metrics_comparison"]
     for key, val in mc.items():
         b = val["baseline"]
         e = val["ekf"]
         imprv = val.get("improvement", "")
-        logger.info(f"{key:<20} {str(b):>12} {str(e):>12} {imprv:>10}")
+        logger.info(f"{key:<28} {str(b):>12} {str(e):>12} {imprv:>10}")
     logger.info(f"\n{compare_summary['conclusion']}")
 
 

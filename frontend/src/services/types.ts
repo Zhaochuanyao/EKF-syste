@@ -22,6 +22,18 @@ export interface TrackInfo {
   state: string;
   center: [number, number];
   future_points: Record<number, [number, number]>;
+  /** EKF 滤波后原始历史轨迹 */
+  raw_history?: [number, number][];
+  /** EMA 平滑后历史轨迹 */
+  smoothed_history?: [number, number][];
+  /** EKF 估计速度（像素/秒）*/
+  velocity?: number;
+  /** EKF 估计航向（弧度）*/
+  heading?: number;
+  /** EKF 估计角速度（弧度/秒）*/
+  omega?: number;
+  /** 是否处于 Lost 恢复保护期 */
+  recovered_recently?: boolean;
 }
 
 export interface FramePredictResponse {

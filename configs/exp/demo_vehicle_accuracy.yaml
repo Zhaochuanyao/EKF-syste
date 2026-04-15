@@ -48,6 +48,7 @@ ekf:
     std_acc: 1.5         # 车辆加速度较小（受限于道路和交通法规）
     std_yaw_rate: 0.3    # 车辆转向率变化较平稳
     std_size: 0.05       # 车辆尺寸几乎不变化
+    lost_age_q_scale: 1.30  # Lost 轨迹每丢失一帧 Q 放大基数（指数，最多8x）
   measurement_noise:
     std_cx: 5.0
     std_cy: 5.0
@@ -70,7 +71,8 @@ prediction:
   future_steps: [1, 5, 10]
   min_hits_for_prediction: 4   # 车辆需要更多帧确认运动方向（CTRV 需要历史）
   max_position_cov_trace: 2000.0   # 车辆场景位置不确定性上限
-  fixed_lag_smoothing: false
+  fixed_lag_smoothing: true    # 启用 EMA 固定滞后平滑，压低历史轨迹高频抖动
+  smoothing_lag: 3             # EMA 滞后帧数（alpha = 2/(lag+1) = 0.5）
 
 output:
   output_dir: outputs/vehicle_accuracy/

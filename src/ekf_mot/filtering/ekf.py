@@ -49,6 +49,9 @@ class ExtendedKalmanFilter:
         std_w: float = 10.0,
         std_h: float = 10.0,
         score_adaptive: bool = True,
+        size_adaptive: bool = False,
+        aspect_adaptive: bool = False,
+        lost_age_q_scale: float = 1.3,
         omega_threshold: float = DEFAULT_OMEGA_THRESHOLD,
     ) -> None:
         """
@@ -59,11 +62,17 @@ class ExtendedKalmanFilter:
             std_size: 尺寸变化过程噪声标准差
             std_cx/cy/w/h: 观测噪声标准差（像素）
             score_adaptive: 是否根据检测置信度自适应调整 R
+            size_adaptive: 是否根据目标尺寸自适应调整 R（大目标噪声更大）
+            aspect_adaptive: 是否根据宽高比自适应调整 R（极端比例检测不稳定）
+            lost_age_q_scale: Lost 轨迹每丢失一帧 Q 放大基数（指数增长）
             omega_threshold: omega 接近零的判断阈值
         """
         self.dt = dt
         self.omega_threshold = omega_threshold
         self.score_adaptive = score_adaptive
+        self.size_adaptive = size_adaptive
+        self.aspect_adaptive = aspect_adaptive
+        self._lost_age_q_scale = lost_age_q_scale
 
         # 噪声参数（用于动态构造 Q 和 R）
         self._std_acc = std_acc
@@ -136,7 +145,7 @@ class ExtendedKalmanFilter:
     # 预测步骤
     # ──────────────────────────────────────────────────────────
 
-    def predict(self, dt: Optional[float] = None) -> TrackStateVector:
+    def predict(self, dt: Optional[float] = None, lost_age: int = 0) -> TrackStateVector:
         """
         EKF 预测步骤。
 
@@ -146,6 +155,7 @@ class ExtendedKalmanFilter:
 
         Args:
             dt: 时间步长（None 则使用默认 self.dt）
+            lost_age: 轨迹已丢失的帧数（0=正常，>0=Lost 状态，放大 Q 的位置/速度分量）
 
         Returns:
             预测后的状态
@@ -165,11 +175,15 @@ class ExtendedKalmanFilter:
         F = ctrv_jacobian(self.x, _dt, self.omega_threshold)
 
         # ── Step 3: 构造过程噪声矩阵 Q ───────────────────────
+        # lost_age > 0 时 Q 指数放大（最多 8x），使 Lost 轨迹的协方差迅速扩大，
+        # 恢复时 EKF 更信任新观测，减少位置跳变
         Q = build_process_noise_Q(
             dt=_dt,
             std_acc=self._std_acc,
             std_yaw_rate=self._std_yaw_rate,
             std_size=self._std_size,
+            lost_age=lost_age,
+            lost_age_q_scale=self._lost_age_q_scale,
         )
 
         # ── Step 4: 传播协方差 ────────────────────────────────
@@ -224,6 +238,7 @@ class ExtendedKalmanFilter:
         if measurement.R is not None:
             R = measurement.R
         else:
+            # 自适应 R：score/size/aspect 各策略乘法叠加
             R = build_measurement_noise_R(
                 std_cx=self._std_cx,
                 std_cy=self._std_cy,
@@ -231,6 +246,13 @@ class ExtendedKalmanFilter:
                 std_h=self._std_h,
                 score=measurement.score if self.score_adaptive else None,
                 score_adaptive=self.score_adaptive,
+                # 尺寸自适应：大目标像素误差更大，放大 R 使 EKF 更信任模型
+                bbox_w=measurement.bbox_w,
+                bbox_h=measurement.bbox_h,
+                size_adaptive=self.size_adaptive,
+                # 宽高比自适应：极端比例（如长车侧面）检测不稳定，放大 R
+                aspect_ratio=measurement.aspect_ratio,
+                aspect_adaptive=self.aspect_adaptive,
             )
 
         # ── Step 4: 计算新息协方差 S ─────────────────────────

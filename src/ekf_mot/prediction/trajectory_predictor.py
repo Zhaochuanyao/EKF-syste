@@ -7,6 +7,7 @@
   - fixed-lag smoothing（可选，离线模式）
 """
 
+import collections
 from typing import Dict, List, Optional, Tuple
 import math
 import numpy as np
@@ -60,6 +61,11 @@ class TrajectoryPredictor:
         self.max_lost_predict_steps = max_lost_predict_steps
         self.fixed_lag_smoothing = fixed_lag_smoothing
         self.smoothing_lag = smoothing_lag
+
+        # ── EMA 平滑缓冲（仅在 fixed_lag_smoothing=True 时生效）──
+        # 每条轨迹独立维护 EMA 状态和平滑历史，不影响 EKF 主状态
+        self._ema_states: Dict[int, Tuple[float, float]] = {}
+        self._smooth_histories: Dict[int, List[Tuple[float, float]]] = {}
 
     # ──────────────────────────────────────────────────────────
     # 核心预测接口
@@ -226,3 +232,45 @@ class TrajectoryPredictor:
         future_points = self.predict_track(track, dt)
         confidence = self.compute_prediction_confidence(track)
         return future_points, confidence, True
+
+    # ──────────────────────────────────────────────────────────
+    # Fixed-lag EMA 平滑（仅用于展示和输出，不修改 EKF 主状态）
+    # ──────────────────────────────────────────────────────────
+
+    def update_smooth(self, track_id: int, cx: float, cy: float) -> None:
+        """
+        将新的滤波后中心点推入 EMA 平滑缓冲，更新平滑历史。
+
+        只在 fixed_lag_smoothing=True 时有效。
+        每帧命中时由 service.process_frame() 调用（time_since_update == 0）。
+
+        EMA 系数：alpha = 2 / (lag + 1)，lag=3 → alpha=0.5（约等于3帧加权均值）
+        平滑效果：压低历史轨迹高频抖动，降低 avg_smoothness 指标。
+        """
+        if not self.fixed_lag_smoothing:
+            return
+
+        alpha = 2.0 / (self.smoothing_lag + 1)  # lag=3 → alpha=0.5
+
+        if track_id not in self._ema_states:
+            # 首次出现：直接用当前值初始化
+            self._ema_states[track_id] = (cx, cy)
+            self._smooth_histories[track_id] = [(cx, cy)]
+        else:
+            pcx, pcy = self._ema_states[track_id]
+            scx = alpha * cx + (1 - alpha) * pcx
+            scy = alpha * cy + (1 - alpha) * pcy
+            self._ema_states[track_id] = (scx, scy)
+            self._smooth_histories[track_id].append((scx, scy))
+            # 限制历史长度，避免无限增长
+            if len(self._smooth_histories[track_id]) > 300:
+                self._smooth_histories[track_id] = self._smooth_histories[track_id][-300:]
+
+    def get_smooth_history(self, track_id: int) -> List[Tuple[float, float]]:
+        """返回指定轨迹的 EMA 平滑历史（不存在则返回空列表）"""
+        return self._smooth_histories.get(track_id, [])
+
+    def cleanup_track(self, track_id: int) -> None:
+        """清理已删除轨迹的平滑缓冲（在轨迹删除时调用，防止内存泄漏）"""
+        self._ema_states.pop(track_id, None)
+        self._smooth_histories.pop(track_id, None)

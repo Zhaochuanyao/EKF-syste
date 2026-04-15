@@ -19,6 +19,15 @@ class TrackInfo(BaseModel):
     state: str
     center: Tuple[float, float]
     future_points: Dict[int, Tuple[float, float]] = {}
+    # 历史轨迹（原始 EKF 滤波后 / EMA 平滑后）
+    raw_history: List[Tuple[float, float]] = []
+    smoothed_history: List[Tuple[float, float]] = []
+    # EKF 运动状态
+    velocity: float = 0.0
+    heading: float = 0.0
+    omega: float = 0.0
+    # 恢复保护标志
+    recovered_recently: bool = False
 
 
 class FramePredictRequest(BaseModel):
