@@ -44,6 +44,8 @@ class ExtendedKalmanFilter:
         std_acc: float = 2.0,
         std_yaw_rate: float = 0.5,
         std_size: float = 0.1,
+        std_pos: float = 0.0,
+        std_vel: float = 0.0,
         std_cx: float = 5.0,
         std_cy: float = 5.0,
         std_w: float = 10.0,
@@ -78,6 +80,8 @@ class ExtendedKalmanFilter:
         self._std_acc = std_acc
         self._std_yaw_rate = std_yaw_rate
         self._std_size = std_size
+        self._std_pos = std_pos
+        self._std_vel = std_vel
         self._std_cx = std_cx
         self._std_cy = std_cy
         self._std_w = std_w
@@ -182,6 +186,8 @@ class ExtendedKalmanFilter:
             std_acc=self._std_acc,
             std_yaw_rate=self._std_yaw_rate,
             std_size=self._std_size,
+            std_pos=self._std_pos,
+            std_vel=self._std_vel,
             lost_age=lost_age,
             lost_age_q_scale=self._lost_age_q_scale,
         )

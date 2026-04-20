@@ -110,13 +110,15 @@ class TrackingService:
         results = []
         for track in active_tracks:
             future: Dict = {}
-            if track.is_confirmed:
+            if track.is_confirmed and self.predictor.is_eligible(track):
                 future = self.predictor.predict_track(track)
             cx, cy = track.get_center()
             bbox = track.get_bbox()
 
-            # 命中帧更新 EMA 平滑历史（fixed_lag_smoothing=False 时为 no-op）
+            # 命中帧更新 EMA 平滑历史；Lost 恢复时先清空，防止跨车错乱
             if track.is_confirmed and track.time_since_update == 0:
+                if track.recovered_recently:
+                    self.predictor.clear_track(track.track_id)
                 self.predictor.update_smooth(track.track_id, float(cx), float(cy))
 
             ekf_x = track.ekf.x

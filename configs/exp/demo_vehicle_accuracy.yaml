@@ -1,7 +1,4 @@
-# demo_vehicle_accuracy.yaml
-# 车辆场景稳定跟踪与预测配置
-# 目标：最大化车辆轨迹稳定性和未来预测准确性（CTRV 模型最适合车辆）
-# 适用场景：交通监控、路口跟踪、车辆运动预测
+# demo_vehicle_accuracy.yaml — 车辆场景 EKF 跟踪与轨迹预测
 
 _base_: configs/base.yaml
 
@@ -10,70 +7,71 @@ runtime:
   device: cpu
 
 detector:
-  conf: 0.4              # 车辆检测置信度（车辆检测通常置信度较高）
-  classes: [2, 3, 5, 7]  # car=2, motorcycle=3, bus=5, truck=7 (COCO)
-  max_det: 50            # 交通场景车辆数量
-  min_area: 1600.0       # 车辆框最小面积（约 40×40 像素）
-  min_short_side: 30.0   # 车辆框最小短边
-  min_aspect: 0.3        # 车辆宽高比最小值
-  max_aspect: 8.0        # 车辆宽高比最大值（长车侧视时）
-  border_margin: 3.0     # 过滤贴边车辆（截断时测量不准）
+  model: yolov8s
+  weights: weights/yolov8s.pt
+  conf: 0.4
+  classes: [2, 3, 5, 7]   # car, motorcycle, bus, truck
+  max_det: 50
+  min_area: 1600.0
+  min_short_side: 30.0
+  min_aspect: 0.3
+  max_aspect: 8.0
+  border_margin: 3.0
 
 tracker:
-  n_init: 2              # 降低确认门限：2帧即确认，减少轨迹碎片化
-  max_age: 50            # 延长 Lost 容忍：车辆遮挡可能持续更长（50帧@25fps≈2s）
+  n_init: 2               # 2帧确认，减少碎片化
+  max_age: 40             # 容忍遮挡约 1.6s @25fps
 
-  # 三阶段关联 - 车辆优化（放宽门控，提高连续性）
   high_conf_threshold: 0.5
-  low_conf_threshold: 0.15     # 放宽低置信度门限，允许更多检测参与 Stage B
-  gating_threshold_confirmed: 13.277  # 放宽至 chi2(0.997, df=4)，减少 Lost 断轨
-  cost_iou_weight: 0.5         # 提高 IoU 权重（车辆 bbox 大，IoU 区分度好）
-  cost_mahal_weight: 0.3       # 降低 Mahal 权重（避免过严门控断轨）
+  low_conf_threshold: 0.15
+  gating_threshold_confirmed: 18.47    # chi2(0.999, df=4)，更宽松减少断轨
+  cost_iou_weight: 0.5
+  cost_mahal_weight: 0.3
   cost_center_weight_confirmed: 0.2
-  cost_threshold_a: 0.88       # Stage A 关联代价上限（适当放宽）
-  iou_threshold_b: 0.25        # 放宽 Stage B IoU 门限（遮挡后 IoU 偏低）
-  iou_threshold_c: 0.2         # 放宽 Stage C IoU 门限
-  center_norm: 300.0           # 车辆场景：预测偏移更大，归一化因子适当增大
+  cost_threshold_a: 0.75
+  iou_threshold_b: 0.25
+  iou_threshold_c: 0.2
+  center_norm: 300.0
 
-  # Stage A2：Lost 轨迹专项恢复（核心降碎片化手段）
-  # 当 Mahal 门控拒绝后，给 Lost 轨迹第二次机会（IoU + 中心距离）
   lost_recovery_stage: true
-  cost_threshold_a2: 1.05      # 车辆场景：稍收紧，避免错误恢复
+  cost_threshold_a2: 1.0
 
-  min_create_score: 0.60       # 提高创建门限（减少误检触发新轨迹，降低碎片化）
-  anchor_mode: center          # 车辆使用几何中心（更均衡）
+  min_create_score: 0.65
+  anchor_mode: center
 
 ekf:
   process_noise:
-    std_acc: 0.5         # 大幅降低：抑制位置/速度抖动（原1.5）
-    std_yaw_rate: 0.15   # 降低：减少航向漂移（原0.3）
-    std_size: 0.05       # 保持
-    lost_age_q_scale: 1.30
+    std_acc: 1.0           # Singer model 加速度（px/s²），仅保留耦合结构，数值影响极小
+    std_yaw_rate: 0.4      # 角速度变化标准差（rad/s）
+    std_size: 0.1          # 尺寸变化标准差
+    std_pos: 2.0           # 直接位置噪声（px/step），稳态增益 K≈0.1~0.3
+    std_vel: 3.0           # 直接速度噪声（px/s/step），对应车辆正常加减速幅度
+    lost_age_q_scale: 1.50
   measurement_noise:
-    std_cx: 12.0         # 大幅提高：更信任模型，减少检测抖动传入（原5.0）
-    std_cy: 12.0
-    std_w: 20.0          # 提高（原15.0）
-    std_h: 15.0          # 提高（原10.0）
+    std_cx: 6.0            # 检测中心 x 噪声（px）
+    std_cy: 6.0            # 检测中心 y 噪声（px）
+    std_w: 10.0            # 检测宽度噪声（px）
+    std_h: 10.0            # 检测高度噪声（px）
     score_adaptive: true
-    size_adaptive: true
+    size_adaptive: false
     border_adaptive: false
-    aspect_adaptive: true
+    aspect_adaptive: false
   initial_covariance:
     std_cx: 10.0
     std_cy: 10.0
-    std_v: 30.0          # 降低初始速度不确定性（原50.0），减少早期速度跳变
-    std_theta: 0.8
-    std_omega: 0.2
-    std_w: 25.0
-    std_h: 15.0
+    std_v: 30.0            # 初始速度不确定性大
+    std_theta: 1.0         # 初始航向完全未知
+    std_omega: 0.5
+    std_w: 15.0
+    std_h: 10.0
 
 prediction:
-  future_steps: [1, 5, 10]
-  min_hits_for_prediction: 4   # 车辆需要更多帧确认运动方向（CTRV 需要历史）
-  max_position_cov_trace: 2000.0   # 车辆场景位置不确定性上限
-  fixed_lag_smoothing: true    # 启用 EMA 固定滞后平滑，压低历史轨迹高频抖动
-  smoothing_lag: 5             # EMA 滞后帧数（alpha = 2/(lag+1) ≈ 0.33）
-  smoothing_alpha: 0.15        # 降低：更强平滑，抑制高频抖动（原0.35）
+  future_steps: [1, 3, 5, 7, 10]
+  min_hits_for_prediction: 2
+  max_position_cov_trace: 2000.0
+  fixed_lag_smoothing: true
+  smoothing_lag: 5
+  smoothing_alpha: 0.20    # EMA alpha，平衡平滑与响应
 
 output:
   output_dir: outputs/vehicle_accuracy/
