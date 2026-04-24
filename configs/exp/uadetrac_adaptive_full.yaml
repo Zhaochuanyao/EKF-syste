@@ -1,0 +1,14 @@
+# UA-DETRAC 自适应 EKF 实验配置（完整子集）
+# 与 uadetrac_adaptive_cpu.yaml 区别：使用全部 train 序列
+_base_: configs/exp/uadetrac_adaptive_cpu.yaml
+
+experiment:
+  name: uadetrac_adaptive_full
+  description: "UA-DETRAC 全量 train 序列上的自适应噪声 EKF 实验"
+  output_dir: outputs/adaptive_ekf/uadetrac_full/
+
+output:
+  output_dir: outputs/adaptive_ekf/uadetrac_full/
+
+data:
+  subset_mode: full         # 切换到全量模式

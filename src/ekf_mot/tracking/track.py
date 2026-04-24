@@ -9,6 +9,8 @@ import numpy as np
 
 from .track_state import TrackState
 from ..filtering.ekf import ExtendedKalmanFilter
+from ..filtering.adaptive_noise import AdaptiveNoiseController, TrackAdaptiveState
+from ..filtering.robust_update import should_skip_update
 from ..core.types import Detection, Measurement, TrackStateVector
 from ..core.constants import IDX_CX, IDX_CY, IDX_W, IDX_H, IDX_OMEGA, IDX_V, IDX_THETA
 
@@ -31,6 +33,7 @@ class Track:
         max_age: int = 20,
         frame_id: int = 0,
         anchor_mode: str = "center",
+        adaptive_controller: Optional[AdaptiveNoiseController] = None,
     ) -> None:
         Track._id_counter += 1
         self.track_id: int = Track._id_counter
@@ -65,6 +68,17 @@ class Track:
         self.heading_valid: bool = False
         self.stability_score: float = 0.0
         self.recovered_recently: bool = False
+
+        # 自适应噪声调度状态（controller 为 None 或 disabled 时均不启用）
+        self._adaptive_ctrl: Optional[AdaptiveNoiseController] = (
+            adaptive_controller if (adaptive_controller is not None and adaptive_controller.cfg.enabled) else None
+        )
+        self.adaptive_state: Optional[TrackAdaptiveState] = (
+            TrackAdaptiveState() if self._adaptive_ctrl is not None else None
+        )
+        # 用于 Q 调度时计算 delta_theta / delta_omega 的上一帧参考值
+        self._prev_theta: float = float(ekf.x[IDX_THETA])
+        self._prev_omega: float = float(ekf.x[IDX_OMEGA])
 
     # ──────────────────────────────────────────────────────────
     # 状态访问
@@ -111,9 +125,36 @@ class Track:
     # ──────────────────────────────────────────────────────────
 
     def predict(self, dt: Optional[float] = None) -> None:
-        """执行 EKF 预测步骤"""
+        """执行 EKF 预测步骤，自适应开启时注入 Q_adapt。"""
         _lost_age = self.time_since_update if self.is_lost else 0
-        self.ekf.predict(dt, lost_age=_lost_age)
+        _dt = dt if dt is not None else self.ekf.dt
+
+        Q_override = None
+        if self._adaptive_ctrl is not None and self._adaptive_ctrl.cfg.q_adapt_on:
+            ctrl = self._adaptive_ctrl
+            Q_base = self.ekf.build_Q(_dt, _lost_age)
+            # 使用上一帧存储的 delta（predict 前计算，体现上一步的机动幅度）
+            Q_override, self.adaptive_state = ctrl.adapt_Q(
+                Q_base=Q_base,
+                nis=self.adaptive_state.prev_nis,
+                state=self.adaptive_state,
+                dt=_dt,
+                delta_theta=self.adaptive_state.last_delta_theta,
+                delta_omega=self.adaptive_state.last_delta_omega,
+            )
+            # 记录本帧 predict 前的 theta/omega，用于下一步 delta 计算
+            self._prev_theta = float(self.ekf.x[IDX_THETA])
+            self._prev_omega = float(self.ekf.x[IDX_OMEGA])
+
+        self.ekf.predict(dt, lost_age=_lost_age, Q_override=Q_override)
+
+        # 更新 delta 供下一帧 Q 调度使用
+        if self._adaptive_ctrl is not None and self._adaptive_ctrl.cfg.q_adapt_on:
+            new_theta = float(self.ekf.x[IDX_THETA])
+            new_omega = float(self.ekf.x[IDX_OMEGA])
+            self.adaptive_state.last_delta_theta = _normalize_angle_diff(new_theta - self._prev_theta)
+            self.adaptive_state.last_delta_omega = new_omega - self._prev_omega
+
         self.age += 1
         self.time_since_update += 1
 
@@ -122,7 +163,6 @@ class Track:
         was_lost = self.is_lost
         obs_cx, obs_cy = detection.cx, detection.cy
 
-        # EKF 观测更新
         z = detection.to_measurement(anchor_mode=self.anchor_mode)
         meas = Measurement(
             z=z,
@@ -132,7 +172,34 @@ class Track:
             bbox_h=detection.h,
             aspect_ratio=detection.w / max(detection.h, 1.0),
         )
-        self.ekf.update(meas)
+
+        # ── 自适应噪声更新 ─────────────────────────────────────
+        R_override = None
+        innov_clip = None
+        skip = False
+
+        if self._adaptive_ctrl is not None:
+            ctrl = self._adaptive_ctrl
+            # 用当前预测状态计算 R_base、新息、NIS
+            R_base = self.ekf.build_R(meas)
+            innov = meas.z - self.ekf.H @ self.ekf.x
+            S = self.ekf.H @ self.ekf.P @ self.ekf.H.T + R_base
+            nis = ctrl.compute_nis(innov, S)
+
+            if ctrl.cfg.r_adapt_on:
+                R_override, self.adaptive_state = ctrl.adapt_R(R_base, innov, nis, self.adaptive_state)
+
+            if ctrl.cfg.robust_on:
+                skip = should_skip_update(
+                    nis, ctrl.cfg.drop_threshold, detection.score, ctrl.cfg.low_score
+                )
+                if not skip:
+                    innov_clip = ctrl.cfg.robust_clip_delta
+
+            self.adaptive_state = ctrl.record_update(self.adaptive_state, nis, skipped=skip)
+
+        # EKF 观测更新（backward compatible：无自适应时三个参数均为默认值）
+        self.ekf.update(meas, R_override=R_override, innov_clip=innov_clip, skip=skip)
 
         self.hits += 1
         self.time_since_update = 0
@@ -213,3 +280,18 @@ class Track:
         while angle < -math.pi:
             angle += 2 * math.pi
         return angle
+
+    def get_adaptive_diagnostics(self) -> Optional[dict]:
+        """返回自适应噪声诊断信息（disabled 时返回 None）。"""
+        if self.adaptive_state is None:
+            return None
+        return self.adaptive_state.get_diagnostics()
+
+
+def _normalize_angle_diff(diff: float) -> float:
+    """将角度差归一化到 [-pi, pi]（Track.predict 内部用）。"""
+    while diff > math.pi:
+        diff -= 2 * math.pi
+    while diff < -math.pi:
+        diff += 2 * math.pi
+    return diff

@@ -52,6 +52,8 @@ class MultiObjectTracker:
         # ── 新轨迹创建门限 ─────────────────────────────────────
         min_create_score: float = 0.0,
         anchor_mode: str = "center",
+        # ── 自适应噪声配置 ──────────────────────────────────────
+        adaptive_noise_cfg: Optional[Dict] = None,
         # ── EKF 参数 ────────────────────────────────────────────
         std_acc: float = 2.0,
         std_yaw_rate: float = 0.5,
@@ -115,6 +117,7 @@ class MultiObjectTracker:
             dt=dt,
             min_create_score=min_create_score,
             anchor_mode=anchor_mode,
+            adaptive_noise_cfg=adaptive_noise_cfg,
             std_acc=std_acc,
             std_yaw_rate=std_yaw_rate,
             std_size=std_size,
@@ -219,6 +222,11 @@ class MultiObjectTracker:
         def _g(d, k, v):
             return d.get(k, v) if isinstance(d, dict) else getattr(d, k, v)
 
+        # 读取 adaptive_noise 配置块（位于顶层 cfg）
+        _an_raw = cfg.get("adaptive_noise", None) if isinstance(cfg, dict) else getattr(cfg, "adaptive_noise", None)
+        # disabled 时传 None
+        _an = _an_raw if (isinstance(_an_raw, dict) and _an_raw.get("enabled", False)) else None
+
         return cls(
             n_init=_get(tracker_cfg, "n_init", 3),
             max_age=_get(tracker_cfg, "max_age", 20),
@@ -243,6 +251,7 @@ class MultiObjectTracker:
             cost_threshold_a2=_get(tracker_cfg, "cost_threshold_a2", 0.9),
             min_create_score=_get(tracker_cfg, "min_create_score", 0.0),
             anchor_mode=_get(tracker_cfg, "anchor_mode", "center"),
+            adaptive_noise_cfg=_an,
             std_acc=_g(pn, "std_acc", 2.0),
             std_yaw_rate=_g(pn, "std_yaw_rate", 0.5),
             std_size=_g(pn, "std_size", 0.1),

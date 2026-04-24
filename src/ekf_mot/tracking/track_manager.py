@@ -11,6 +11,7 @@ from .track_state import TrackState
 from .lifecycle import apply_lifecycle
 from ..core.types import Detection, Measurement
 from ..filtering.ekf import ExtendedKalmanFilter
+from ..filtering.adaptive_noise import AdaptiveNoiseController, make_adaptive_controller
 from ..utils.logger import get_logger
 
 logger = get_logger("ekf_mot.tracking.manager")
@@ -56,6 +57,8 @@ class TrackManager:
         init_std_omega: float = 0.2,
         init_std_w: float = 20.0,
         init_std_h: float = 20.0,
+        # 自适应噪声配置（dict 或 None）
+        adaptive_noise_cfg: Optional[dict] = None,
     ) -> None:
         self.n_init = n_init
         self.max_age = max_age
@@ -90,6 +93,11 @@ class TrackManager:
             std_w=init_std_w,
             std_h=init_std_h,
         )
+
+        # 自适应噪声调度器（共享，无状态；None 表示 disabled）
+        self._adaptive_ctrl: Optional[AdaptiveNoiseController] = make_adaptive_controller(adaptive_noise_cfg)
+        if self._adaptive_ctrl.cfg.enabled:
+            logger.info("自适应噪声调度已启用 (AdaptiveNoiseController)")
 
         self._tracks: List[Track] = []
         self._pending_births: Dict[tuple, Dict[str, float]] = {}
@@ -278,6 +286,7 @@ class TrackManager:
             max_age=self.max_age,
             frame_id=frame_id,
             anchor_mode=self.anchor_mode,
+            adaptive_controller=self._adaptive_ctrl,
         )
         self._tracks.append(track)
         logger.debug(

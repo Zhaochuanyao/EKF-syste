@@ -35,3 +35,34 @@ tracker:
 
   # 数值稳定性
   omega_threshold: 0.001
+
+# 基于新息统计的分层自适应噪声调度（默认关闭，与当前主干行为一致）
+adaptive_noise:
+  enabled: false            # false = 行为与当前仓库一致
+
+  # NIS 异常检测阈值
+  nis_threshold: 9.4877     # chi2(0.99, df=4)，普通异常判定
+  drop_threshold: 20.0      # 极端异常阈值，触发 skip update
+
+  # 测量噪声 R 自适应参数
+  lambda_r: 0.6             # R 放大强度
+  beta: 0.85                # 新息均值递推遗忘因子
+  delta_max: 400.0          # 新息偏差裁剪上限（逐元素）
+  recover_alpha_r: 0.8      # R 回退衰减系数（0~1，越小回退越快）
+
+  # 过程噪声 Q 机动感知调度参数
+  lambda_q: 0.3             # Q 缩放强度
+  q_max_scale: 4.0          # Q 最大缩放倍数上限
+  maneuver_cap: 3.0         # NIS 项对机动得分的截断上限
+  maneuver_w_nis: 1.0       # 机动得分 NIS 项权重
+  maneuver_w_omega: 0.8     # 机动得分角速度变化权重
+  maneuver_w_theta: 0.5     # 机动得分航向角速率权重
+
+  # 鲁棒更新参数
+  low_score: 0.35           # 极端异常时触发 skip 的检测分数门限
+  use_robust_update: true   # 是否启用鲁棒裁剪更新
+  robust_clip_delta: 25.0   # 新息裁剪阈值（像素）
+
+  # 消融开关（仅在 enabled=true 时生效）
+  only_r_adapt: false       # 只启用 R 自适应，关闭 Q 调度和鲁棒更新
+  only_q_schedule: false    # 只启用 Q 调度，关闭 R 自适应和鲁棒更新

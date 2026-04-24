@@ -1,0 +1,75 @@
+# UA-DETRAC 自适应 EKF 实验配置（CPU 小子集）
+# 对应消融实验 5 组：baseline / current_ekf / r_adapt / q_schedule / full_adaptive
+_base_: configs/base.yaml
+
+experiment:
+  name: uadetrac_adaptive_cpu
+  description: "UA-DETRAC cpu_small 子集上的自适应噪声 EKF 消融实验"
+  output_dir: outputs/adaptive_ekf/uadetrac_subset/
+
+runtime:
+  frame_skip: 1
+  max_frames: null
+  device: cpu
+  seed: 42
+
+detector:
+  backend: ultralytics
+  model: yolov8n
+  weights: weights/yolov8n.pt
+  imgsz: 640
+  conf: 0.30
+  iou: 0.45
+  max_det: 100
+  classes: null             # UA-DETRAC 只有车辆，检测全部类别
+
+tracker:
+  dt: 0.04
+  auto_dt: true
+  n_init: 2
+  max_age: 30
+  second_stage_match: true
+
+prediction:
+  future_steps: [1, 5, 10]
+  min_hits_for_prediction: 3
+
+visualization:
+  draw_bbox: true
+  draw_tracks: true
+  draw_future: true
+  draw_covariance: false
+  track_history_len: 30
+
+output:
+  save_video: false         # 实验阶段关闭视频，加速
+  save_json: true
+  save_csv: true
+  output_dir: outputs/adaptive_ekf/uadetrac_subset/
+
+data:
+  root: data/UA-DETRAC/
+  subset_config: configs/data/uadetrac_subset_cpu.yaml
+  subset_mode: cpu_small    # cpu_small | full
+
+# 自适应噪声（默认关闭；各消融组由实验脚本覆盖此块）
+adaptive_noise:
+  enabled: false
+  nis_threshold: 9.4877
+  drop_threshold: 20.0
+  lambda_r: 0.6
+  lambda_q: 0.3
+  beta: 0.85
+  q_max_scale: 4.0
+  delta_max: 400.0
+  low_score: 0.35
+  use_robust_update: true
+  robust_clip_delta: 25.0
+  recover_alpha_r: 0.8
+  maneuver_cap: 3.0
+  maneuver_w_nis: 1.0
+  maneuver_w_omega: 0.8
+  maneuver_w_theta: 0.5
+  # 消融开关
+  only_r_adapt: false
+  only_q_schedule: false

@@ -16,6 +16,7 @@ from ..core.constants import (
 from .models.ctrv import ctrv_predict, ctrv_jacobian
 from .jacobians import H_MATRIX
 from .noise import build_process_noise_Q, build_measurement_noise_R, build_initial_covariance_P
+from .robust_update import apply_robust_clip
 
 
 class ExtendedKalmanFilter:
@@ -149,7 +150,43 @@ class ExtendedKalmanFilter:
     # 预测步骤
     # ──────────────────────────────────────────────────────────
 
-    def predict(self, dt: Optional[float] = None, lost_age: int = 0) -> TrackStateVector:
+    # ──────────────────────────────────────────────────────────
+    # 噪声矩阵辅助方法（供外部自适应逻辑调用）
+    # ──────────────────────────────────────────────────────────
+
+    def build_Q(self, dt: Optional[float] = None, lost_age: int = 0) -> np.ndarray:
+        """构造当前参数下的过程噪声 Q_base，不触发 predict。"""
+        _dt = dt if dt is not None else self.dt
+        return build_process_noise_Q(
+            dt=_dt,
+            std_acc=self._std_acc,
+            std_yaw_rate=self._std_yaw_rate,
+            std_size=self._std_size,
+            std_pos=self._std_pos,
+            std_vel=self._std_vel,
+            lost_age=lost_age,
+            lost_age_q_scale=self._lost_age_q_scale,
+        )
+
+    def build_R(self, measurement: "Measurement") -> np.ndarray:
+        """构造当前 Measurement 对应的观测噪声 R_base，不触发 update。"""
+        if measurement.R is not None:
+            return measurement.R.copy()
+        return build_measurement_noise_R(
+            std_cx=self._std_cx,
+            std_cy=self._std_cy,
+            std_w=self._std_w,
+            std_h=self._std_h,
+            score=measurement.score if self.score_adaptive else None,
+            score_adaptive=self.score_adaptive,
+            bbox_w=measurement.bbox_w,
+            bbox_h=measurement.bbox_h,
+            size_adaptive=self.size_adaptive,
+            aspect_ratio=measurement.aspect_ratio,
+            aspect_adaptive=self.aspect_adaptive,
+        )
+
+    def predict(self, dt: Optional[float] = None, lost_age: int = 0, Q_override: Optional[np.ndarray] = None) -> TrackStateVector:
         """
         EKF 预测步骤。
 
@@ -158,8 +195,9 @@ class ExtendedKalmanFilter:
         3. 传播协方差: P_pred = F * P * F^T + Q
 
         Args:
-            dt: 时间步长（None 则使用默认 self.dt）
-            lost_age: 轨迹已丢失的帧数（0=正常，>0=Lost 状态，放大 Q 的位置/速度分量）
+            dt:         时间步长（None 则使用默认 self.dt）
+            lost_age:   轨迹已丢失的帧数（>0 时 Q_base 指数放大）
+            Q_override: 外部传入的 Q（自适应调度结果）；非 None 时直接使用，忽略 lost_age 对 Q 的影响
 
         Returns:
             预测后的状态
@@ -179,18 +217,12 @@ class ExtendedKalmanFilter:
         F = ctrv_jacobian(self.x, _dt, self.omega_threshold)
 
         # ── Step 3: 构造过程噪声矩阵 Q ───────────────────────
-        # lost_age > 0 时 Q 指数放大（最多 8x），使 Lost 轨迹的协方差迅速扩大，
-        # 恢复时 EKF 更信任新观测，减少位置跳变
-        Q = build_process_noise_Q(
-            dt=_dt,
-            std_acc=self._std_acc,
-            std_yaw_rate=self._std_yaw_rate,
-            std_size=self._std_size,
-            std_pos=self._std_pos,
-            std_vel=self._std_vel,
-            lost_age=lost_age,
-            lost_age_q_scale=self._lost_age_q_scale,
-        )
+        # Q_override 由外部自适应调度器提供（已含机动缩放）；
+        # 未提供时按标准逻辑构造，lost_age > 0 时指数放大位置/速度分量
+        if Q_override is not None:
+            Q = Q_override
+        else:
+            Q = self.build_Q(_dt, lost_age)
 
         # ── Step 4: 传播协方差 ────────────────────────────────
         # P_pred = F * P * F^T + Q
@@ -214,37 +246,55 @@ class ExtendedKalmanFilter:
     # 更新步骤
     # ──────────────────────────────────────────────────────────
 
-    def update(self, measurement: Measurement) -> TrackStateVector:
+    def update(
+        self,
+        measurement: Measurement,
+        *,
+        R_override: Optional[np.ndarray] = None,
+        innov_clip: Optional[float] = None,
+        skip: bool = False,
+    ) -> TrackStateVector:
         """
         EKF 更新步骤（观测更新）。
 
         1. 计算预测观测: z_pred = H * x_pred
         2. 计算新息: y = z - z_pred
-        3. 计算新息协方差: S = H * P * H^T + R
-        4. 计算卡尔曼增益: K = P * H^T * S^{-1}
-        5. 更新状态均值: x = x_pred + K * y
-        6. 更新协方差: P = (I - K*H) * P_pred
+        3. 构造观测噪声 R（支持外部覆盖 R_override）
+        4. 计算新息协方差: S = H * P * H^T + R
+        5. 计算卡尔曼增益: K = P * H^T * S^{-1}
+        6. （可选）裁剪新息: y = clip(y, innov_clip)
+        7. 更新状态均值: x = x_pred + K * y
+        8. 更新协方差（Joseph 形式）
 
         Args:
-            measurement: 观测值，包含 z 向量和可选的 R 矩阵
+            measurement: 观测值
+            R_override:  外部传入的自适应 R（非 None 时替换内部计算的 R）
+            innov_clip:  新息裁剪阈值（像素）；None 表示不裁剪
+            skip:        True 时跳过更新步骤，直接返回当前预测状态（鲁棒 skip）
 
         Returns:
             更新后的状态
         """
+        # ── skip update（极端异常 + 低质量检测）─────────────
+        if skip:
+            return TrackStateVector(x=self.x.copy(), P=self.P.copy())
+
         z = measurement.z
 
         # ── Step 1: 预测观测值 ────────────────────────────────
-        # 观测函数 h(x) = H * x（线性，直接提取 cx,cy,w,h）
         z_pred = self.H @ self.x  # (4,)
 
         # ── Step 2: 计算新息（残差）──────────────────────────
         y = z - z_pred  # (4,)
 
         # ── Step 3: 构造观测噪声矩阵 R ───────────────────────
-        if measurement.R is not None:
+        # R_override 由外部自适应控制器提供（已经过 NIS 驱动放大/回退）；
+        # 未提供时按 score/size/aspect 启发式策略构造
+        if R_override is not None:
+            R = R_override
+        elif measurement.R is not None:
             R = measurement.R
         else:
-            # 自适应 R：score/size/aspect 各策略乘法叠加
             R = build_measurement_noise_R(
                 std_cx=self._std_cx,
                 std_cy=self._std_cy,
@@ -252,21 +302,17 @@ class ExtendedKalmanFilter:
                 std_h=self._std_h,
                 score=measurement.score if self.score_adaptive else None,
                 score_adaptive=self.score_adaptive,
-                # 尺寸自适应：大目标像素误差更大，放大 R 使 EKF 更信任模型
                 bbox_w=measurement.bbox_w,
                 bbox_h=measurement.bbox_h,
                 size_adaptive=self.size_adaptive,
-                # 宽高比自适应：极端比例（如长车侧面）检测不稳定，放大 R
                 aspect_ratio=measurement.aspect_ratio,
                 aspect_adaptive=self.aspect_adaptive,
             )
 
         # ── Step 4: 计算新息协方差 S ─────────────────────────
-        # S = H * P * H^T + R
         S = self.H @ self.P @ self.H.T + R  # (4, 4)
 
         # ── Step 5: 计算卡尔曼增益 K ─────────────────────────
-        # K = P * H^T * S^{-1}
         try:
             S_inv = np.linalg.inv(S)
         except np.linalg.LinAlgError:
@@ -274,15 +320,18 @@ class ExtendedKalmanFilter:
 
         K = self.P @ self.H.T @ S_inv  # (7, 4)
 
-        # ── Step 6: 更新状态均值 ──────────────────────────────
-        # x = x_pred + K * y
+        # ── Step 6: 鲁棒新息裁剪（可选）─────────────────────
+        # 抑制极端离群观测对状态的冲击；innov_clip=None 时退化为标准 EKF
+        if innov_clip is not None:
+            y = apply_robust_clip(y, innov_clip)
+
+        # ── Step 7: 更新状态均值 ──────────────────────────────
         self.x = self.x + K @ y
 
         # 归一化航向角
         self.x[IDX_THETA] = self._normalize_angle(self.x[IDX_THETA])
 
-        # ── Step 7: 更新协方差（Joseph 形式，数值稳定）────────
-        # P = (I - K*H) * P * (I - K*H)^T + K*R*K^T
+        # ── Step 8: 更新协方差（Joseph 形式，数值稳定）────────
         I_KH = np.eye(STATE_DIM) - K @ self.H
         self.P = I_KH @ self.P @ I_KH.T + K @ R @ K.T
 
