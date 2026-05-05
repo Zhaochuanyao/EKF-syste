@@ -72,7 +72,7 @@ GROUP_NAMES = [
 _ADAPTIVE_BASE = dict(
     nis_threshold=9.4877,
     drop_threshold=20.0,
-    lambda_r=0.6,
+    lambda_r=0.3,
     lambda_q=0.3,
     beta=0.85,
     q_max_scale=4.0,
@@ -80,7 +80,7 @@ _ADAPTIVE_BASE = dict(
     low_score=0.35,
     use_robust_update=True,
     robust_clip_delta=25.0,
-    recover_alpha_r=0.8,
+    recover_alpha_r=0.65,
     maneuver_cap=3.0,
     maneuver_w_nis=1.0,
     maneuver_w_omega=0.8,
@@ -553,6 +553,8 @@ def main():
                         help="每条合成序列车辆数")
     parser.add_argument("--iou-eval", type=float, default=0.5,
                         help="评估 IoU 阈值")
+    parser.add_argument("--n-seqs", type=int, default=8,
+                        help="UA-DETRAC 序列数量（从全部可用 XML 中取前 N 条）")
     parser.add_argument("--output", default=str(OUTPUT_DIR),
                         help="输出目录")
     args = parser.parse_args()
@@ -565,8 +567,11 @@ def main():
     sequences: List[Dict] = []   # [{"name": str, "gt": [...], "det": [...]}]
 
     if args.data in ("auto", "uadetrac"):
+        # 扫描全部可用 XML，按文件名排序后取前 n_seqs 条
+        all_xmls = sorted(UADETRAC_ANNO_DIR.glob("*.xml"))
+        selected = [p.stem for p in all_xmls[:args.n_seqs]]
         missing = 0
-        for seq_name in UADETRAC_SEQS:
+        for seq_name in selected:
             xml_path = UADETRAC_ANNO_DIR / f"{seq_name}.xml"
             if not xml_path.exists():
                 missing += 1
@@ -581,7 +586,7 @@ def main():
 
         if sequences:
             use_uadetrac = True
-            logger.info(f"UA-DETRAC: 加载 {len(sequences)}/{len(UADETRAC_SEQS)} 条序列"
+            logger.info(f"UA-DETRAC: 加载 {len(sequences)}/{len(selected)} 条序列"
                         + (f"（{missing} 条缺失，已跳过）" if missing else ""))
         elif args.data == "uadetrac":
             logger.error("UA-DETRAC 数据集不可用，请运行 python scripts/check_uadetrac_subset.py 检查")

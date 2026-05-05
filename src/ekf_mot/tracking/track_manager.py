@@ -269,6 +269,22 @@ class TrackManager:
         self._tracks.clear()
         Track.reset_id_counter()
 
+    def update_adaptive_controller(self, adaptive_noise_cfg: Optional[dict]) -> None:
+        """
+        热切换自适应噪声策略。
+        替换共享 controller，并将新 controller 传播到所有现存 track。
+        已有 track 的 adaptive_state（NIS 历史等）保留不清空。
+        """
+        new_ctrl = make_adaptive_controller(adaptive_noise_cfg)
+        self._adaptive_ctrl = new_ctrl
+        for track in self._tracks:
+            track._adaptive_ctrl = new_ctrl
+        logger.info(
+            f"自适应噪声策略已热切换: enabled={new_ctrl.cfg.enabled} "
+            f"r_adapt={new_ctrl.cfg.r_adapt_on} q_adapt={new_ctrl.cfg.q_adapt_on} "
+            f"robust={new_ctrl.cfg.robust_on}"
+        )
+
     # ──────────────────────────────────────────────────────────
     # 内部方法
     # ──────────────────────────────────────────────────────────

@@ -121,3 +121,38 @@ export function getOutputUrl(filename: string): string {
 export async function resetTracker(): Promise<void> {
   await client.post('/reset');
 }
+
+// ── EKF 噪声策略 ──────────────────────────────────────────────
+
+export interface NoiseModeInfo {
+  mode: string;
+  label: string;
+  adaptive_noise_enabled: boolean;
+  applied_to_running_session: boolean;
+}
+
+export const NOISE_MODE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'current_ekf', label: 'Current EKF' },
+  { value: 'r_adapt',     label: '+R-adapt' },
+  { value: 'q_sched',     label: '+Q-sched' },
+  { value: 'rq_adapt',    label: '+RQ-adapt' },
+  { value: 'full_adpt',   label: 'Full Adpt' },
+];
+
+export async function getNoiseMode(): Promise<NoiseModeInfo> {
+  try {
+    const { data } = await client.get<NoiseModeInfo>('/api/ekf/noise-mode');
+    return data;
+  } catch (err) {
+    throw new Error(extractError(err));
+  }
+}
+
+export async function updateNoiseMode(mode: string): Promise<NoiseModeInfo & { message: string; applied_from: string }> {
+  try {
+    const { data } = await client.put('/api/ekf/noise-mode', { mode });
+    return data;
+  } catch (err) {
+    throw new Error(extractError(err));
+  }
+}

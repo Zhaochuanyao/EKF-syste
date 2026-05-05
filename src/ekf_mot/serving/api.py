@@ -14,6 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 import cv2
 
+from pydantic import BaseModel
+
 from .schemas import (
     FramePredictRequest,
     FramePredictResponse,
@@ -23,6 +25,9 @@ from .schemas import (
 )
 from .service import TrackingService
 from ..utils.logger import get_logger
+from ..config.adaptive_mode import (
+    VALID_MODES, MODE_LABELS, MODE_CURRENT_EKF, resolve_adaptive_mode,
+)
 
 logger = get_logger("ekf_mot.serving.api")
 
@@ -54,6 +59,10 @@ _services: Dict[str, TrackingService] = {}
 _service_lock = threading.Lock()
 
 DEFAULT_CONFIG = "demo_vehicle_accuracy"  # 全局默认：车辆场景
+
+# ── 当前噪声策略（全局，跨 config 共享）──────────────────────
+_current_noise_mode: str = MODE_CURRENT_EKF
+_noise_mode_lock = threading.Lock()
 
 
 def get_service(config_name: str = DEFAULT_CONFIG) -> TrackingService:
@@ -226,6 +235,60 @@ async def get_output_file(filename: str):
 # ══════════════════════════════════════════════════════════════
 # 重置跟踪器
 # ══════════════════════════════════════════════════════════════
+
+class NoiseModeRequest(BaseModel):
+    mode: str
+
+
+# ══════════════════════════════════════════════════════════════
+# EKF 噪声策略接口
+# ══════════════════════════════════════════════════════════════
+
+@app.get("/api/ekf/noise-mode")
+async def get_noise_mode():
+    """获取当前 EKF 自适应噪声策略"""
+    global _current_noise_mode
+    has_session = any(
+        hasattr(svc, "tracker") and svc.tracker is not None
+        for svc in _services.values()
+    )
+    return {
+        "mode": _current_noise_mode,
+        "label": MODE_LABELS[_current_noise_mode],
+        "adaptive_noise_enabled": _current_noise_mode != MODE_CURRENT_EKF,
+        "applied_to_running_session": has_session,
+    }
+
+
+@app.put("/api/ekf/noise-mode")
+async def set_noise_mode(body: NoiseModeRequest):
+    """切换 EKF 自适应噪声策略（热切换，下一帧立即生效）"""
+    global _current_noise_mode
+    if body.mode not in VALID_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"非法 mode: {body.mode!r}，合法值: {sorted(VALID_MODES)}",
+        )
+    with _noise_mode_lock:
+        old_mode = _current_noise_mode
+        _current_noise_mode = body.mode
+        cfg = resolve_adaptive_mode(body.mode)
+        # 热更新所有已存在的 tracker
+        for svc in _services.values():
+            if hasattr(svc, "tracker") and svc.tracker is not None:
+                svc.tracker.update_adaptive_controller(cfg)
+    logger.info(
+        f"噪声策略切换: {old_mode} -> {body.mode} | "
+        f"running_sessions={len(_services)}"
+    )
+    return {
+        "success": True,
+        "mode": body.mode,
+        "label": MODE_LABELS[body.mode],
+        "message": "Noise strategy switched successfully",
+        "applied_from": "next_frame",
+    }
+
 
 @app.post("/reset")
 async def reset_tracker(
