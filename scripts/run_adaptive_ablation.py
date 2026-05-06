@@ -52,7 +52,8 @@ logger = logging.getLogger("adaptive_ablation")
 # ═══════════════════════════════════════════════════════════════
 
 OUTPUT_DIR = Path("outputs/adaptive_ekf/uadetrac_subset")
-UADETRAC_ANNO_DIR = Path("data/UA-DETRAC/DETRAC-Train-Annotations-XML/DETRAC-Train-Annotations-XML")
+UADETRAC_TRAIN_DIR = Path("data/UA-DETRAC/DETRAC-Train-Annotations-XML/DETRAC-Train-Annotations-XML")
+UADETRAC_TEST_DIR = Path("data/UA-DETRAC/DETRAC-Test-Annotations-XML/DETRAC-Test-Annotations-XML")
 UADETRAC_SEQS = [
     "MVI_20011", "MVI_20032", "MVI_20051", "MVI_20061",
     "MVI_39761", "MVI_39771", "MVI_40732", "MVI_40751",
@@ -556,23 +557,34 @@ def main():
     parser.add_argument("--n-seqs", type=int, default=8,
                         help="UA-DETRAC 序列数量（从全部可用 XML 中取前 N 条）")
     parser.add_argument("--output", default=str(OUTPUT_DIR),
-                        help="输出目录")
+                        help="输出根目录")
     args = parser.parse_args()
 
-    out_dir = Path(args.output)
+    # ── 创建带时间戳的输出子目录 ──────────────────────────────
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    n_seqs_actual = args.n_seqs if args.data in ("auto", "uadetrac") else args.sequences
+    run_name = f"{timestamp}_n{n_seqs_actual}"
+    out_dir = Path(args.output) / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"输出目录: {out_dir.resolve()}")
 
     # ── 确定序列列表 ──────────────────────────────────────────
     use_uadetrac = False
     sequences: List[Dict] = []   # [{"name": str, "gt": [...], "det": [...]}]
 
     if args.data in ("auto", "uadetrac"):
-        # 扫描全部可用 XML，按文件名排序后取前 n_seqs 条
-        all_xmls = sorted(UADETRAC_ANNO_DIR.glob("*.xml"))
+        # 扫描 Train + Test 全部可用 XML，按文件名排序后取前 n_seqs 条
+        train_xmls = sorted(UADETRAC_TRAIN_DIR.glob("*.xml")) if UADETRAC_TRAIN_DIR.exists() else []
+        test_xmls = sorted(UADETRAC_TEST_DIR.glob("*.xml")) if UADETRAC_TEST_DIR.exists() else []
+        all_xmls = train_xmls + test_xmls
         selected = [p.stem for p in all_xmls[:args.n_seqs]]
         missing = 0
         for seq_name in selected:
-            xml_path = UADETRAC_ANNO_DIR / f"{seq_name}.xml"
+            # 先尝试 Train，再尝试 Test
+            xml_path = UADETRAC_TRAIN_DIR / f"{seq_name}.xml"
+            if not xml_path.exists():
+                xml_path = UADETRAC_TEST_DIR / f"{seq_name}.xml"
             if not xml_path.exists():
                 missing += 1
                 continue

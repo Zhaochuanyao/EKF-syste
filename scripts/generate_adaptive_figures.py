@@ -380,12 +380,48 @@ def plot_trajectory_compare(out_path: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="生成自适应噪声 EKF 实验图表")
-    parser.add_argument("--input",  default=str(OUTPUT_DIR), help="CSV 所在目录")
-    parser.add_argument("--output", default=str(OUTPUT_DIR), help="图表输出目录")
+    parser.add_argument("--input",  default=None, help="CSV 所在目录（不指定则列出可用运行）")
+    parser.add_argument("--output", default=None, help="图表输出目录（默认与 input 相同）")
     args = parser.parse_args()
 
-    in_dir  = Path(args.input)
-    out_dir = Path(args.output)
+    # ── 如果未指定 input，列出所有可用运行并让用户选择 ──────────
+    if args.input is None:
+        base_dir = Path("outputs/adaptive_ekf/uadetrac_subset")
+        if not base_dir.exists():
+            logger.error(f"输出根目录不存在: {base_dir}")
+            sys.exit(1)
+
+        # 查找所有带时间戳的子目录
+        runs = sorted([d for d in base_dir.iterdir() if d.is_dir() and "_n" in d.name])
+        if not runs:
+            logger.error(f"未找到任何实验运行结果，请先运行:\n  python scripts/run_adaptive_ablation.py")
+            sys.exit(1)
+
+        logger.info("可用的实验运行结果：")
+        for i, run_dir in enumerate(runs, 1):
+            main_csv = run_dir / "main_metrics.csv"
+            if main_csv.exists():
+                logger.info(f"  [{i}] {run_dir.name}")
+
+        choice = input("\n请输入序号选择数据源（直接回车选择最新）: ").strip()
+        if choice == "":
+            in_dir = runs[-1]
+        else:
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(runs):
+                    in_dir = runs[idx]
+                else:
+                    logger.error("无效序号")
+                    sys.exit(1)
+            except ValueError:
+                logger.error("无效输入")
+                sys.exit(1)
+        logger.info(f"已选择: {in_dir.name}")
+    else:
+        in_dir = Path(args.input)
+
+    out_dir = Path(args.output) if args.output else in_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     main_csv     = in_dir / "main_metrics.csv"
@@ -393,7 +429,8 @@ def main():
 
     if not main_csv.exists() or not ablation_csv.exists():
         logger.error(
-            f"CSV 不存在，请先运行:\n"
+            f"CSV 不存在: {in_dir}\n"
+            f"请先运行:\n"
             f"  python scripts/run_adaptive_ablation.py"
         )
         sys.exit(1)
