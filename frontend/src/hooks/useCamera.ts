@@ -62,6 +62,11 @@ export function useCamera(): UseCameraReturn {
 
       setState((s) => ({ ...s, status: 'requesting', error: null }));
 
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setState((s) => ({ ...s, status: 'error', error: '浏览器不支持摄像头访问，请使用 HTTPS 或 localhost' }));
+        return;
+      }
+
       try {
         const targetDevice = deviceId || state.selectedDeviceId;
         const constraints: MediaStreamConstraints = {
