@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Read(//Volumes/D/pycharm/**)"
+      "Read(//Volumes/D/pycharm/**)",
+      "Bash(python scripts/generate_chapter5_detection_assets.py --config configs/data/uadetrac_subset_cpu.yaml --output outputs/chapter5/detection --model weights/yolov8n.pt --conf-thres 0.25 --iou-thres 0.50 --vehicle-only --max-frames 500)"
     ]
   }
 }

@@ -7,7 +7,8 @@
       "Bash(\"C:\\\\Users\\\\zcy\\\\.ipython\\\\python.exe\" -m pytest d:/pycharm/EKFsystem/tests/ --tb=short -q)",
       "Bash(C:\\\\Users\\\\zcy\\\\.ipython\\\\python.exe scripts/compare_baseline_vs_ekf.py --video assets/samples/demo.mp4 --max-frames 300)",
       "Bash(\"/c/Users/zcy/.ipython/python.exe\" scripts/compare_baseline_vs_ekf.py --video assets/samples/demo.mp4 --max-frames 300)",
-      "Read(//Users/**)"
+      "Read(//Users/**)",
+      "Bash(python scripts/generate_chapter5_detection_assets.py --config configs/data/uadetrac_subset_cpu.yaml --output outputs/chapter5/detection --model weights/yolov8n.pt --detector-backend auto --conf-thres 0.25 --iou-thres 0.50 --vehicle-only --max-frames 500 --frame-stride 1)"
     ]
   }
 }
